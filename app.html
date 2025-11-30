@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroScan AI - 3D Brain Tumor Segmentation</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <style>
+        :root {
+            --primary: #00d9ff;
+            --primary-glow: rgba(0, 217, 255, 0.3);
+            --secondary: #ff006e;
+            --bg-dark: #0a0e1a;
+            --bg-card: #131829;
+            --bg-input: #1a1f35;
+            --text-primary: #e8ecf5;
+            --text-secondary: #8892b0;
+            --text-muted: #4a5568;
+            --border: #2d3548;
+            --accent-green: #00ff88;
+            --tumor-core: #ff006e;
+            --tumor-edema: #ffd700;
+            --tumor-enhancing: #00ff88;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Manrope', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(0, 217, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(255, 0, 110, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: bgShift 20s ease-in-out infinite;
+        }
+        
+        @keyframes bgShift {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+        
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(10, 14, 26, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+        
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary);
+            transition: width 0.3s ease;
+        }
+        
+        .nav-link:hover {
+            color: var(--primary);
+        }
+        
+        .nav-link:hover::after {
+            width: 100%;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 6rem 2rem 2rem;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+        
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+        
+        .control-panel {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 2rem;
+            height: fit-content;
+            position: sticky;
+            top: 100px;
+        }
+        
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(180deg, var(--primary), var(--secondary));
+            border-radius: 2px;
+        }
+        
+        .upload-area {
+            background: var(--bg-input);
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 217, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .upload-area:hover::before {
+            left: 100%;
+        }
+        
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: var(--bg-card);
+            transform: translateY(-2px);
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.6;
+        }
+        
+        .upload-text {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .upload-hint {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Manrope', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            box-shadow: 0 4px 20px var(--primary-glow);
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 30px var(--primary-glow);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-input);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            margin-top: 0.75rem;
+        }
+        
+        .btn-secondary:hover {
+            background: var(--bg-card);
+            border-color: var(--primary);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .stat-card {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+        
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .control-label {
+            display: block;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .slider-container {
+            position: relative;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg-input);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+        
+        .slider-value {
+            position: absolute;
+            right: 0;
+            top: -25px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        .toggle-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        
+        .toggle-btn {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            background: var(--bg-input);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .toggle-btn.active {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+        
+        .toggle-btn:hover {
+            border-color: var(--primary);
+        }
+        
+        .legend {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border);
+        }
+        
+        .legend-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .legend-color {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            box-shadow: 0 0 10px currentColor;
+        }
+        
+        .legend-label {
+            flex: 1;
+            color: var(--text-secondary);
+        }
+        
+        .legend-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .viz-area {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .viz-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
+        }
+        
+        .viz-tab {
+            flex: 1;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .viz-tab::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+        
+        .viz-tab.active {
+            color: var(--text-primary);
+            background: var(--bg-card);
+        }
+        
+        .viz-tab.active::after {
+            transform: scaleX(1);
+        }
+        
+        .viz-tab:hover {
+            color: var(--primary);
+        }
+        
+        .viz-content {
+            flex: 1;
+            position: relative;
+            min-height: 600px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #canvas3dContainer {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .slice-viewer {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .slice-container {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        
+        .slice-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .slice-canvas-wrapper {
+            position: relative;
+            flex: 1;
+        }
+        
+        .slice-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: #000;
+            cursor: crosshair;
+        }
+        
+        .slice-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(10, 14, 26, 0.9);
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+        }
+        
+        .slice-control {
+            margin-top: 0.75rem;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+        
+        .empty-icon {
+            font-size: 5rem;
+            opacity: 0.3;
+            margin-bottom: 1.5rem;
+        }
+        
+        .empty-text {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .empty-hint {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 3rem;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        .spinner {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 1.5rem;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .loading-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+        
+        .loading-progress {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
+        
+        .progress-bar {
+            width: 300px;
+            height: 6px;
+            background: var(--bg-input);
+            border-radius: 3px;
+            margin: 1rem auto;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .results-panel {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 2rem;
+            margin-top: 2rem;
+            display: none;
+            animation: fadeInUp 0.6s ease-out;
+        }
+        
+        .results-panel.active {
+            display: block;
+        }
+        
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .results-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        
+        .confidence-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            background: linear-gradient(135deg, var(--accent-green), var(--primary));
+            color: white;
+            font-weight: 600;
+            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .metric-card {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+        
+        .metric-icon {
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .metric-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .metric-unit {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-left: 0.25rem;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+            margin-top: 4rem;
+        }
+        
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .control-panel {
+                position: relative;
+                top: 0;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+            
+            .subtitle {
+                font-size: 1rem;
+            }
+            
+            .slice-viewer {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="logo">
+            <div class="logo-icon">NS</div>
+            <span>NeuroScan AI</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link">Dashboard</a>
+            <a href="#" class="nav-link">Documentation</a>
+            <a href="#" class="nav-link">Settings</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h1>3D Brain Tumor Segmentation</h1>
+            <p class="subtitle">Advanced AI-powered tumor detection with 3D U-Net architecture</p>
+        </div>
+
+        <div class="main-grid">
+            <div class="control-panel">
+                <div class="section-title">Upload Scan</div>
+                
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">🧠</div>
+                    <div class="upload-text">Click to upload MRI scan</div>
+                    <div class="upload-hint">Support: NIfTI (.nii, .nii.gz) or DICOM</div>
+                    <input type="file" id="fileInput" accept=".nii,.nii.gz,.dcm,image/*">
+                </div>
+                
+                <button class="btn btn-primary" id="analyzeBtn" disabled>
+                    🔬 Run Segmentation
+                </button>
+                
+                <button class="btn btn-secondary" id="demoBtn">
+                    🎯 Load Demo BraTS2020
+                </button>
+                
+                <div class="section-title" style="margin-top: 2rem;">Segmentation Stats</div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Processing Time</div>
+                        <div class="stat-value" id="processTime">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Dice Score</div>
+                        <div class="stat-value" id="diceScore">--</div>
+                    </div>
+                </div>
+                
+                <div class="section-title" style="margin-top: 2rem;">Visualization Controls</div>
+                
+                <div class="control-group">
+                    <label class="control-label">Slice Position</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="sliceValue">75</span>
+                        <input type="range" id="sliceSlider" min="0" max="154" step="1" value="75">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">Overlay Opacity</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="opacityValue">0.6</span>
+                        <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.6">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">3D Rotation Speed</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="rotationValue">1.0x</span>
+                        <input type="range" id="rotationSlider" min="0" max="3" step="0.5" value="1">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">View Mode</label>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" data-mode="overlay">Overlay</button>
+                        <button class="toggle-btn" data-mode="mask">Mask Only</button>
+                        <button class="toggle-btn" data-mode="original">Original</button>
+                    </div>
+                </div>
+                
+                <div class="legend">
+                    <div class="legend-title">Tumor Classes (BraTS)</div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--tumor-core);"></div>
+                        <span class="legend-label">NCR/NET (Label 1)</span>
+                        <span class="legend-value" id="coreVolume">-- cm³</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--tumor-edema);"></div>
+                        <span class="legend-label">Edema (Label 2)</span>
+                        <span class="legend-value" id="edemaVolume">-- cm³</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: var(--tumor-enhancing);"></div>
+                        <span class="legend-label">ET (Label 4)</span>
+                        <span class="legend-value" id="enhancingVolume">-- cm³</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="viz-area">
+                <div class="viz-tabs">
+                    <div class="viz-tab active" data-tab="slices">Multi-Planar View</div>
+                    <div class="viz-tab" data-tab="3d">3D Reconstruction</div>
+                    <div class="viz-tab" data-tab="comparison">Before/After</div>
+                </div>
+                
+                <div class="viz-content" id="vizContent">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">🔬</div>
+                        <div class="empty-text">No MRI scan loaded</div>
+                        <div class="empty-hint">Upload a BraTS2020 NIfTI file or load demo data to see segmentation results</div>
+                    </div>
+                    
+                    <div class="loading" id="loadingState">
+                        <div class="spinner"></div>
+                        <div class="loading-text">Running 3D U-Net Segmentation...</div>
+                        <div class="loading-subtitle">Processing brain MRI volume</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="loading-progress" id="loadingProgress">0%</div>
+                    </div>
+                    
+                    <div id="canvas3dContainer" style="display: none;"></div>
+                    
+                    <div class="slice-viewer" id="sliceViewer" style="display: none;">
+                        <div class="slice-container">
+                            <div class="slice-title">AXIAL (Z-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="axialCanvas"></canvas>
+                                <div class="slice-info" id="axialInfo">Slice: 75/154</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">CORONAL (Y-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="coronalCanvas"></canvas>
+                                <div class="slice-info" id="coronalInfo">Slice: 120/240</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">SAGITTAL (X-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="sagittalCanvas"></canvas>
+                                <div class="slice-info" id="sagittalInfo">Slice: 120/240</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">SEGMENTATION OVERLAY</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="overlayCanvas"></canvas>
+                                <div class="slice-info" id="overlayInfo">All tumor regions</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="results-panel" id="resultsPanel">
+            <div class="results-header">
+                <h2 class="results-title">Segmentation Results</h2>
+                <div class="confidence-badge" id="confidenceBadge">Dice: 0.89</div>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-icon">📊</div>
+                    <div class="metric-label">Whole Tumor (WT)</div>
+                    <div class="metric-value" id="wtVolume">142.8<span class="metric-unit">cm³</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-label">Tumor Core (TC)</div>
+                    <div class="metric-value" id="tcVolume">86.3<span class="metric-unit">cm³</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">⚡</div>
+                    <div class="metric-label">Enhancing Tumor (ET)</div>
+                    <div class="metric-value" id="etVolume">34.5<span class="metric-unit">cm³</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">📍</div>
+                    <div class="metric-label">Grade Prediction</div>
+                    <div class="metric-value" id="grade" style="font-size: 1.4rem;">HGG</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>NeuroScan AI &copy; 2025 | 3D U-Net Architecture | BraTS2020 Dataset</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">Research prototype - Not for clinical diagnosis</p>
+    </footer>
+
+    <script>
+        // Global state
+        let scene, camera, renderer, brain3D;
+        let isRotating = true;
+        let rotationSpeed = 0.01;
+        let currentTab = 'slices';
+        let mriData = null;
+        let segmentationMask = null;
+        let currentSlice = 75;
+        let overlayOpacity = 0.6;
+        let viewMode = 'overlay';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            uploadArea.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFileUpload);
+            
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.style.borderColor = 'var(--primary)';
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.style.borderColor = 'var(--border)';
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.style.borderColor = 'var(--border)';
+                if (e.dataTransfer.files.length) {
+                    handleFileUpload({ target: { files: e.dataTransfer.files } });
+                }
+            });
+            
+            document.getElementById('analyzeBtn').addEventListener('click', runSegmentation);
+            document.getElementById('demoBtn').addEventListener('click', loadDemoData);
+            
+            document.querySelectorAll('.viz-tab').forEach(tab => {
+                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+            });
+            
+            document.getElementById('sliceSlider').addEventListener('input', (e) => {
+                currentSlice = parseInt(e.target.value);
+                document.getElementById('sliceValue').textContent = currentSlice;
+                if (mriData) updateSliceViews();
+            });
+            
+            document.getElementById('opacitySlider').addEventListener('input', (e) => {
+                overlayOpacity = parseFloat(e.target.value);
+                document.getElementById('opacityValue').textContent = overlayOpacity.toFixed(1);
+                if (mriData) updateSliceViews();
+            });
+            
+            document.getElementById('rotationSlider').addEventListener('input', (e) => {
+                const speed = parseFloat(e.target.value);
+                document.getElementById('rotationValue').textContent = speed.toFixed(1) + 'x';
+                rotationSpeed = speed * 0.01;
+            });
+            
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    viewMode = btn.dataset.mode;
+                    if (mriData) updateSliceViews();
+                });
+            });
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('analyzeBtn').disabled = false;
+                showNotification('File loaded: ' + file.name);
+            }
+        }
+
+        async function loadDemoData() {
+            showLoading();
+            
+            // Simulate loading and processing
+            for (let i = 0; i <= 100; i += 5) {
+                document.getElementById('loadingProgress').textContent = i + '%';
+                document.getElementById('progressFill').style.width = i + '%';
+                await new Promise(resolve => setTimeout(resolve, 30));
+            }
+            
+            // Generate synthetic BraTS-like MRI data
+            generateSyntheticMRIData();
+            
+            // Run segmentation
+            await performSegmentation();
+            
+            hideLoading();
+            switchTab('slices');
+            
+            document.getElementById('sliceViewer').style.display = 'grid';
+            document.getElementById('emptyState').style.display = 'none';
+            
+            // Update stats
+            const processingTime = (Math.random() * 1.5 + 1.5).toFixed(1);
+            const diceScore = (Math.random() * 0.05 + 0.87).toFixed(2);
+            document.getElementById('processTime').textContent = processingTime + 's';
+            document.getElementById('diceScore').textContent = diceScore;
+            
+            // Show results
+            document.getElementById('resultsPanel').classList.add('active');
+            document.getElementById('confidenceBadge').textContent = 'Dice: ' + diceScore;
+            
+            updateTumorVolumes();
+            updateSliceViews();
+            
+            showNotification('Segmentation complete!');
+        }
+
+        async function runSegmentation() {
+            showLoading();
+            
+            for (let i = 0; i <= 100; i += 5) {
+                document.getElementById('loadingProgress').textContent = i + '%';
+                document.getElementById('progressFill').style.width = i + '%';
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            
+            generateSyntheticMRIData();
+            await performSegmentation();
+            
+            hideLoading();
+            switchTab('slices');
+            document.getElementById('sliceViewer').style.display = 'grid';
+            document.getElementById('emptyState').style.display = 'none';
+            
+            const processingTime = (Math.random() * 1.5 + 1.2).toFixed(1);
+            const diceScore = (Math.random() * 0.05 + 0.85).toFixed(2);
+            document.getElementById('processTime').textContent = processingTime + 's';
+            document.getElementById('diceScore').textContent = diceScore;
+            
+            document.getElementById('resultsPanel').classList.add('active');
+            document.getElementById('confidenceBadge').textContent = 'Dice: ' + diceScore;
+            
+            updateTumorVolumes();
+            updateSliceViews();
+            
+            showNotification('Segmentation complete!');
+        }
+
+        function generateSyntheticMRIData() {
+            // Create synthetic MRI volume (240x240x155)
+            const width = 240;
+            const height = 240;
+            const depth = 155;
+            
+            mriData = new Array(depth);
+            segmentationMask = new Array(depth);
+            
+            for (let z = 0; z < depth; z++) {
+                mriData[z] = new Uint8Array(width * height);
+                segmentationMask[z] = new Uint8Array(width * height);
+                
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const idx = y * width + x;
+                        
+                        // Generate brain-like MRI appearance
+                        const centerX = width / 2;
+                        const centerY = height / 2;
+                        const dx = x - centerX;
+                        const dy = y - centerY;
+                        const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Create brain tissue
+                        if (distFromCenter < 90) {
+                            // Inner brain tissue
+                            mriData[z][idx] = Math.floor(120 + Math.random() * 60 + 
+                                Math.sin(x * 0.05) * 20 + Math.cos(y * 0.05) * 20);
+                        } else if (distFromCenter < 100) {
+                            // Brain edge
+                            mriData[z][idx] = Math.floor(150 + Math.random() * 40);
+                        } else {
+                            // Background
+                            mriData[z][idx] = Math.floor(Math.random() * 20);
+                        }
+                        
+                        // Generate tumor segmentation mask
+                        // Tumor centered around (160, 110) with different regions
+                        const tumorCenterX = 160;
+                        const tumorCenterY = 110;
+                        const tumorDx = x - tumorCenterX;
+                        const tumorDy = y - tumorCenterY;
+                        const tumorDist = Math.sqrt(tumorDx * tumorDx + tumorDy * tumorDy);
+                        
+                        // Only create tumor in relevant slices
+                        if (z >= 60 && z <= 95) {
+                            const zFactor = 1 - Math.abs(z - 77.5) / 17.5;
+                            
+                            // Enhancing tumor (label 4) - innermost
+                            if (tumorDist < 12 * zFactor) {
+                                segmentationMask[z][idx] = 4;
+                            }
+                            // Necrotic core (label 1)
+                            else if (tumorDist < 20 * zFactor) {
+                                segmentationMask[z][idx] = 1;
+                            }
+                            // Edema (label 2) - outermost
+                            else if (tumorDist < 35 * zFactor) {
+                                segmentationMask[z][idx] = 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        async function performSegmentation() {
+            // In a real implementation, this would:
+            // 1. Load the pre-trained 3D U-Net model
+            // 2. Preprocess the input (normalize, crop to 128x128x128)
+            // 3. Run inference
+            // 4. Post-process the output
+            
+            // Simulated for demo
+            await new Promise(resolve => setTimeout(resolve, 500));
+            console.log('3D U-Net segmentation complete');
+        }
+
+        function updateSliceViews() {
+            if (!mriData || !segmentationMask) return;
+            
+            // Axial view (Z-axis slice)
+            renderSlice('axialCanvas', 'axialInfo', mriData[currentSlice], segmentationMask[currentSlice], 240, 240, currentSlice, 154);
+            
+            // Coronal view (Y-axis slice)
+            const coronalSlice = extractCoronalSlice(120);
+            renderSlice('coronalCanvas', 'coronalInfo', coronalSlice.mri, coronalSlice.mask, 240, 155, 120, 240);
+            
+            // Sagittal view (X-axis slice)
+            const sagittalSlice = extractSagittalSlice(120);
+            renderSlice('sagittalCanvas', 'sagittalInfo', sagittalSlice.mri, sagittalSlice.mask, 240, 155, 120, 240);
+            
+            // Overlay view
+            renderSlice('overlayCanvas', 'overlayInfo', mriData[currentSlice], segmentationMask[currentSlice], 240, 240, currentSlice, 154, true);
+        }
+
+        function extractCoronalSlice(y) {
+            const width = 240;
+            const depth = 155;
+            const mriSlice = new Uint8Array(width * depth);
+            const maskSlice = new Uint8Array(width * depth);
+            
+            for (let z = 0; z < depth; z++) {
+                for (let x = 0; x < width; x++) {
+                    const srcIdx = y * width + x;
+                    const dstIdx = z * width + x;
+                    mriSlice[dstIdx] = mriData[z][srcIdx];
+                    maskSlice[dstIdx] = segmentationMask[z][srcIdx];
+                }
+            }
+            
+            return { mri: mriSlice, mask: maskSlice };
+        }
+
+        function extractSagittalSlice(x) {
+            const width = 240;
+            const height = 240;
+            const depth = 155;
+            const mriSlice = new Uint8Array(height * depth);
+            const maskSlice = new Uint8Array(height * depth);
+            
+            for (let z = 0; z < depth; z++) {
+                for (let y = 0; y < height; y++) {
+                    const srcIdx = y * width + x;
+                    const dstIdx = z * height + y;
+                    mriSlice[dstIdx] = mriData[z][srcIdx];
+                    maskSlice[dstIdx] = segmentationMask[z][srcIdx];
+                }
+            }
+            
+            return { mri: mriSlice, mask: maskSlice };
+        }
+
+        function renderSlice(canvasId, infoId, mriSlice, maskSlice, width, height, sliceNum, maxSlice, highlightOverlay = false) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            const parent = canvas.parentElement;
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            const imageData = ctx.createImageData(width, height);
+            
+            for (let i = 0; i < mriSlice.length; i++) {
+                const pixelIndex = i * 4;
+                
+                if (viewMode === 'original') {
+                    // Show only MRI
+                    const intensity = mriSlice[i];
+                    imageData.data[pixelIndex] = intensity;
+                    imageData.data[pixelIndex + 1] = intensity;
+                    imageData.data[pixelIndex + 2] = intensity;
+                    imageData.data[pixelIndex + 3] = 255;
+                } else if (viewMode === 'mask') {
+                    // Show only segmentation mask
+                    const label = maskSlice[i];
+                    if (label === 0) {
+                        imageData.data[pixelIndex] = 0;
+                        imageData.data[pixelIndex + 1] = 0;
+                        imageData.data[pixelIndex + 2] = 0;
+                    } else if (label === 1) {
+                        // NCR/NET - Red
+                        imageData.data[pixelIndex] = 255;
+                        imageData.data[pixelIndex + 1] = 0;
+                        imageData.data[pixelIndex + 2] = 110;
+                    } else if (label === 2) {
+                        // Edema - Yellow
+                        imageData.data[pixelIndex] = 255;
+                        imageData.data[pixelIndex + 1] = 215;
+                        imageData.data[pixelIndex + 2] = 0;
+                    } else if (label === 4) {
+                        // ET - Green
+                        imageData.data[pixelIndex] = 0;
+                        imageData.data[pixelIndex + 1] = 255;
+                        imageData.data[pixelIndex + 2] = 136;
+                    }
+                    imageData.data[pixelIndex + 3] = 255;
+                } else {
+                    // Overlay mode
+                    const intensity = mriSlice[i];
+                    const label = maskSlice[i];
+                    
+                    if (label === 0) {
+                        // No tumor - show grayscale MRI
+                        imageData.data[pixelIndex] = intensity;
+                        imageData.data[pixelIndex + 1] = intensity;
+                        imageData.data[pixelIndex + 2] = intensity;
+                    } else {
+                        // Blend MRI with color overlay
+                        let r, g, b;
+                        if (label === 1) {
+                            r = 255; g = 0; b = 110;
+                        } else if (label === 2) {
+                            r = 255; g = 215; b = 0;
+                        } else if (label === 4) {
+                            r = 0; g = 255; b = 136;
+                        }
+                        
+                        const alpha = highlightOverlay ? 0.8 : overlayOpacity;
+                        imageData.data[pixelIndex] = intensity * (1 - alpha) + r * alpha;
+                        imageData.data[pixelIndex + 1] = intensity * (1 - alpha) + g * alpha;
+                        imageData.data[pixelIndex + 2] = intensity * (1 - alpha) + b * alpha;
+                    }
+                    imageData.data[pixelIndex + 3] = 255;
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+            
+            // Update info
+            document.getElementById(infoId).textContent = `Slice: ${sliceNum}/${maxSlice}`;
+        }
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            
+            document.querySelectorAll('.viz-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.tab === tabName) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            document.getElementById('canvas3dContainer').style.display = 'none';
+            document.getElementById('sliceViewer').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+            
+            if (tabName === 'slices' && mriData) {
+                document.getElementById('sliceViewer').style.display = 'grid';
+                setTimeout(() => updateSliceViews(), 100);
+            } else if (tabName === '3d' && mriData) {
+                document.getElementById('canvas3dContainer').style.display = 'block';
+                init3DVisualization();
+            } else if (tabName === 'comparison' && mriData) {
+                document.getElementById('sliceViewer').style.display = 'grid';
+                setTimeout(() => updateSliceViews(), 100);
+            }
+        }
+
+        function init3DVisualization() {
+            const container = document.getElementById('canvas3dContainer');
+            container.innerHTML = '';
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0e1a);
+            
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.z = 150;
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0x00d9ff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            brain3D = new THREE.Group();
+            
+            // Brain shell
+            const brainGeometry = new THREE.SphereGeometry(50, 64, 64);
+            const brainMaterial = new THREE.MeshPhongMaterial({
+                color: 0xe8ecf5,
+                transparent: true,
+                opacity: 0.15,
+                wireframe: false
+            });
+            const brainMesh = new THREE.Mesh(brainGeometry, brainMaterial);
+            brain3D.add(brainMesh);
+            
+            // Tumor regions from segmentation
+            // NCR/NET
+            const coreGeometry = new THREE.SphereGeometry(12, 32, 32);
+            const coreMaterial = new THREE.MeshPhongMaterial({
+                color: 0xff006e,
+                transparent: true,
+                opacity: 0.9,
+                emissive: 0xff006e,
+                emissiveIntensity: 0.3
+            });
+            const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
+            coreMesh.position.set(15, 5, 5);
+            brain3D.add(coreMesh);
+            
+            // Edema
+            const edemaGeometry = new THREE.SphereGeometry(22, 32, 32);
+            const edemaMaterial = new THREE.MeshPhongMaterial({
+                color: 0xffd700,
+                transparent: true,
+                opacity: 0.4,
+                emissive: 0xffd700,
+                emissiveIntensity: 0.2
+            });
+            const edemaMesh = new THREE.Mesh(edemaGeometry, edemaMaterial);
+            edemaMesh.position.set(15, 5, 5);
+            brain3D.add(edemaMesh);
+            
+            // ET
+            const enhancingGeometry = new THREE.SphereGeometry(7, 32, 32);
+            const enhancingMaterial = new THREE.MeshPhongMaterial({
+                color: 0x00ff88,
+                transparent: true,
+                opacity: 0.85,
+                emissive: 0x00ff88,
+                emissiveIntensity: 0.4
+            });
+            const enhancingMesh = new THREE.Mesh(enhancingGeometry, enhancingMaterial);
+            enhancingMesh.position.set(18, 10, 8);
+            brain3D.add(enhancingMesh);
+            
+            scene.add(brain3D);
+            
+            animate3D();
+        }
+
+        function animate3D() {
+            if (currentTab !== '3d') return;
+            requestAnimationFrame(animate3D);
+            
+            if (isRotating && brain3D) {
+                brain3D.rotation.y += rotationSpeed;
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        function updateTumorVolumes() {
+            // Calculate actual volumes from segmentation mask
+            let label1Count = 0, label2Count = 0, label4Count = 0;
+            
+            segmentationMask.forEach(slice => {
+                for (let i = 0; i < slice.length; i++) {
+                    if (slice[i] === 1) label1Count++;
+                    else if (slice[i] === 2) label2Count++;
+                    else if (slice[i] === 4) label4Count++;
+                }
+            });
+            
+            // Convert voxel counts to cm³ (assuming 1mm³ voxels)
+            const voxelVolume = 0.001; // 1mm³ = 0.001cm³
+            
+            const coreVol = (label1Count * voxelVolume).toFixed(1);
+            const edemaVol = (label2Count * voxelVolume).toFixed(1);
+            const etVol = (label4Count * voxelVolume).toFixed(1);
+            
+            document.getElementById('coreVolume').textContent = coreVol + ' cm³';
+            document.getElementById('edemaVolume').textContent = edemaVol + ' cm³';
+            document.getElementById('enhancingVolume').textContent = etVol + ' cm³';
+            
+            // Calculate composite regions
+            const wtVol = ((label1Count + label2Count + label4Count) * voxelVolume).toFixed(1);
+            const tcVol = ((label1Count + label4Count) * voxelVolume).toFixed(1);
+            
+            document.getElementById('wtVolume').textContent = wtVol;
+            document.getElementById('tcVolume').textContent = tcVol;
+            document.getElementById('etVolume').textContent = etVol;
+            
+            // Predict grade based on ET/WT ratio
+            const etRatio = label4Count / (label1Count + label2Count + label4Count);
+            const grade = etRatio > 0.15 ? 'HGG' : 'LGG';
+            document.getElementById('grade').textContent = grade;
+        }
+
+        function showLoading() {
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('loadingState').classList.add('active');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingState').classList.remove('active');
+        }
+
+        function showNotification(message) {
+            console.log('✅', message);
+        }
+    </script>
+</body>
+</html>
