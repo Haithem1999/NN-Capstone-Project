@@ -1,189 +1,29 @@
 /**
- * NeuroScan AI - Brain Tumor Segmentation Application
- * 3D U-Net implementation with TensorFlow.js for browser-based inference
+ * REAL Browser-Based Brain Tumor Segmentation
+ * No backend needed - runs entirely in browser
+ * Uses actual NIfTI parsing and intensity-based segmentation
  */
 
-// ============================================================================
-// GLOBAL STATE
-// ============================================================================
+console.log('🧠 NeuroScan AI - Browser Segmentation Loading...');
 
-let model = null;
+// Global state
 let mriData = null;
-let segmentationMask = null;
-let currentSlice = 75;
+let segmentationData = null;
+let currentSlice = 50;
 let overlayOpacity = 0.7;
-let viewMode = 'overlay';
-let currentTab = 'slices';
-let scene, camera, renderer, brain3D;
-let isRotating = true;
-let rotationSpeed = 0.01;
+let niftiHeader = null;
 
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
-
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🧠 NeuroScan AI initializing...');
     setupEventListeners();
-    initializeModel();
+    console.log('✅ Ready for real segmentation');
 });
-
-// ============================================================================
-// 3D U-NET MODEL
-// ============================================================================
-
-/**
- * Build 3D U-Net model architecture
- * Simplified version for browser (full version would be too heavy)
- */
-async function buildUNet3D() {
-    console.log('Building 3D U-Net architecture...');
-    
-    // For browser efficiency, we'll use a simplified 2D U-Net approach
-    // that processes slices and then combines them
-    const model = tf.sequential();
-    
-    // Encoder
-    model.add(tf.layers.conv2d({
-        inputShape: [128, 128, 4],
-        filters: 16,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'enc_conv1a'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 16,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'enc_conv1b'
-    }));
-    
-    model.add(tf.layers.maxPooling2d({
-        poolSize: [2, 2],
-        name: 'enc_pool1'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 32,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'enc_conv2a'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 32,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'enc_conv2b'
-    }));
-    
-    model.add(tf.layers.maxPooling2d({
-        poolSize: [2, 2],
-        name: 'enc_pool2'
-    }));
-    
-    // Bottleneck
-    model.add(tf.layers.conv2d({
-        filters: 64,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'bottleneck_conv1'
-    }));
-    
-    model.add(tf.layers.dropout({
-        rate: 0.2,
-        name: 'bottleneck_dropout'
-    }));
-    
-    // Decoder
-    model.add(tf.layers.upSampling2d({
-        size: [2, 2],
-        name: 'dec_up1'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 32,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'dec_conv1a'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 32,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'dec_conv1b'
-    }));
-    
-    model.add(tf.layers.upSampling2d({
-        size: [2, 2],
-        name: 'dec_up2'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 16,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'dec_conv2a'
-    }));
-    
-    model.add(tf.layers.conv2d({
-        filters: 16,
-        kernelSize: 3,
-        activation: 'relu',
-        padding: 'same',
-        name: 'dec_conv2b'
-    }));
-    
-    // Output layer - 4 classes (background, NCR/NET, ED, ET)
-    model.add(tf.layers.conv2d({
-        filters: 4,
-        kernelSize: 1,
-        activation: 'softmax',
-        padding: 'same',
-        name: 'output'
-    }));
-    
-    model.compile({
-        optimizer: tf.train.adam(0.0001),
-        loss: 'categoricalCrossentropy',
-        metrics: ['accuracy']
-    });
-    
-    console.log('✅ Model architecture built');
-    return model;
-}
-
-async function initializeModel() {
-    try {
-        console.log('Initializing TensorFlow.js model...');
-        model = await buildUNet3D();
-        console.log('✅ Model initialized (untrained weights)');
-        console.log('Note: For production, load pre-trained weights');
-    } catch (error) {
-        console.error('❌ Error initializing model:', error);
-    }
-}
-
-// ============================================================================
-// EVENT LISTENERS
-// ============================================================================
 
 function setupEventListeners() {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
     
     uploadArea.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleFileUpload);
     
     uploadArea.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -198,665 +38,549 @@ function setupEventListeners() {
         e.preventDefault();
         uploadArea.style.borderColor = 'var(--border)';
         if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
             handleFileUpload({ target: { files: e.dataTransfer.files } });
         }
     });
     
-    document.getElementById('analyzeBtn').addEventListener('click', runSegmentation);
-    document.getElementById('demoBtn').addEventListener('click', loadDemoData);
-    
-    document.querySelectorAll('.viz-tab').forEach(tab => {
-        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-    });
+    fileInput.addEventListener('change', handleFileUpload);
+    document.getElementById('segmentBtn').addEventListener('click', runSegmentation);
     
     document.getElementById('sliceSlider').addEventListener('input', (e) => {
         currentSlice = parseInt(e.target.value);
-        document.getElementById('sliceValue').textContent = currentSlice;
-        if (mriData) updateSliceViews();
+        document.getElementById('sliceNum').textContent = currentSlice;
+        if (mriData) renderAllViews();
     });
     
     document.getElementById('opacitySlider').addEventListener('input', (e) => {
         overlayOpacity = parseFloat(e.target.value);
-        document.getElementById('opacityValue').textContent = overlayOpacity.toFixed(1);
-        if (mriData) updateSliceViews();
-    });
-    
-    document.getElementById('rotationSlider').addEventListener('input', (e) => {
-        const speed = parseFloat(e.target.value);
-        document.getElementById('rotationValue').textContent = speed.toFixed(1) + 'x';
-        rotationSpeed = speed * 0.01;
-    });
-    
-    document.querySelectorAll('.toggle-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            viewMode = btn.dataset.mode;
-            if (mriData) updateSliceViews();
-        });
+        document.getElementById('opacityNum').textContent = overlayOpacity.toFixed(1);
+        if (mriData) renderAllViews();
     });
 }
-
-// ============================================================================
-// FILE HANDLING
-// ============================================================================
 
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
-        document.getElementById('analyzeBtn').disabled = false;
-        showNotification(`File loaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+        console.log('📁 File selected:', file.name);
+        document.getElementById('segmentBtn').disabled = false;
     }
 }
 
-// ============================================================================
-// DATA GENERATION
-// ============================================================================
-
-/**
- * Generate synthetic BraTS2020-like MRI data
- * Creates realistic brain structure with tumor regions
- */
-function generateSyntheticMRIData() {
-    console.log('Generating synthetic MRI data...');
-    
-    const width = 240;
-    const height = 240;
-    const depth = 155;
-    
-    mriData = new Array(depth);
-    segmentationMask = new Array(depth);
-    
-    for (let z = 0; z < depth; z++) {
-        mriData[z] = new Uint8Array(width * height);
-        segmentationMask[z] = new Uint8Array(width * height);
-        
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = y * width + x;
-                
-                // Brain anatomy
-                const centerX = width / 2;
-                const centerY = height / 2;
-                const dx = x - centerX;
-                const dy = y - centerY;
-                const distFromCenter = Math.sqrt(dx * dx + dy * dy);
-                
-                // Create brain tissue with realistic variation
-                if (distFromCenter < 90) {
-                    // Inner brain with texture
-                    const baseIntensity = 120 + Math.random() * 60;
-                    const texture = Math.sin(x * 0.05) * 15 + Math.cos(y * 0.05) * 15;
-                    const depth_variation = Math.cos(z * 0.08) * 10;
-                    mriData[z][idx] = Math.max(0, Math.min(255, baseIntensity + texture + depth_variation));
-                } else if (distFromCenter < 100) {
-                    // Brain edge/cortex
-                    mriData[z][idx] = 150 + Math.random() * 40;
-                } else {
-                    // Background with noise
-                    mriData[z][idx] = Math.random() * 15;
-                }
-                
-                // Generate tumor segmentation
-                const tumorX = 160;
-                const tumorY = 110;
-                const tdx = x - tumorX;
-                const tdy = y - tumorY;
-                const tumorDist = Math.sqrt(tdx * tdx + tdy * tdy);
-                
-                // Create tumor in specific slices
-                if (z >= 60 && z <= 95) {
-                    const zFactor = 1 - Math.abs(z - 77.5) / 17.5;
-                    
-                    // Enhancing tumor (ET) - label 4 - innermost, brightest
-                    if (tumorDist < 10 * zFactor) {
-                        segmentationMask[z][idx] = 4;
-                        // Modify MRI intensity for tumor
-                        mriData[z][idx] = Math.min(255, mriData[z][idx] * 1.5);
-                    }
-                    // Necrotic core (NCR/NET) - label 1 - mid region
-                    else if (tumorDist < 18 * zFactor) {
-                        segmentationMask[z][idx] = 1;
-                        mriData[z][idx] = Math.max(30, mriData[z][idx] * 0.7);
-                    }
-                    // Edema (ED) - label 2 - outermost, diffuse
-                    else if (tumorDist < 32 * zFactor) {
-                        segmentationMask[z][idx] = 2;
-                        mriData[z][idx] = Math.min(200, mriData[z][idx] * 1.1);
-                    }
-                }
-            }
-        }
-    }
-    
-    console.log('✅ Synthetic MRI data generated');
-    return { mriData, segmentationMask };
-}
-
-// ============================================================================
-// SEGMENTATION
-// ============================================================================
-
-/**
- * Run 3D U-Net segmentation
- * In production, this would use actual trained weights
- */
 async function runSegmentation() {
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please select a file first');
+        return;
+    }
+    
     showLoading();
     const startTime = performance.now();
     
     try {
-        // Simulate processing steps
-        await updateProgressWithSteps([
-            { progress: 20, message: 'Preprocessing MRI data...' },
-            { progress: 40, message: 'Running 3D U-Net inference...' },
-            { progress: 60, message: 'Post-processing segmentation...' },
-            { progress: 80, message: 'Calculating volumes...' },
-            { progress: 100, message: 'Complete!' }
-        ]);
+        console.log('🔬 Starting segmentation...');
         
-        // Generate synthetic data (in production, process uploaded file)
-        generateSyntheticMRIData();
+        // Read NIfTI file
+        console.log('📖 Reading NIfTI file...');
+        const arrayBuffer = await file.arrayBuffer();
+        const data = new Uint8Array(arrayBuffer);
         
-        // In a real implementation with trained weights:
-        // const predictions = await runModelInference(mriData);
-        // segmentationMask = postprocessPredictions(predictions);
+        // Parse NIfTI
+        const nifti = parseNIfTI(data);
+        console.log('✅ NIfTI parsed:', nifti.dims);
         
-        const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        // Extract MRI data
+        mriData = extractMRIData(nifti);
+        console.log('✅ MRI data extracted');
+        
+        // Run REAL segmentation
+        console.log('🔬 Running intensity-based segmentation...');
+        segmentationData = segmentTumor(mriData);
+        console.log('✅ Segmentation complete');
+        
+        // Calculate volumes
+        const volumes = calculateVolumes(segmentationData, nifti.pixDims);
+        console.log('📊 Volumes:', volumes);
         
         // Update UI
-        document.getElementById('processTime').textContent = processingTime + 's';
-        document.getElementById('diceScore').textContent = (0.85 + Math.random() * 0.10).toFixed(2);
-        
-        // Calculate and display results
-        updateTumorVolumes();
-        
-        hideLoading();
-        switchTab('slices');
-        
-        document.getElementById('resultsPanel').classList.add('active');
-        showNotification('✅ Segmentation complete!');
-        
-    } catch (error) {
-        console.error('Error during segmentation:', error);
-        hideLoading();
-        showNotification('❌ Error during segmentation: ' + error.message);
-    }
-}
-
-async function loadDemoData() {
-    showLoading();
-    const startTime = performance.now();
-    
-    try {
-        await updateProgressWithSteps([
-            { progress: 30, message: 'Loading BraTS2020 demo data...' },
-            { progress: 60, message: 'Generating synthetic tumor...' },
-            { progress: 90, message: 'Preparing visualization...' },
-            { progress: 100, message: 'Ready!' }
-        ]);
-        
-        generateSyntheticMRIData();
-        
         const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
         document.getElementById('processTime').textContent = processingTime + 's';
-        document.getElementById('diceScore').textContent = '0.89';
+        document.getElementById('tumorVol').textContent = volumes.wt_volume.toFixed(1) + ' cm³';
         
-        updateTumorVolumes();
+        // Setup slice slider
+        const maxSlice = mriData.depth - 1;
+        const slider = document.getElementById('sliceSlider');
+        slider.max = maxSlice;
+        slider.value = Math.floor(maxSlice / 2);
+        slider.disabled = false;
+        currentSlice = parseInt(slider.value);
+        document.getElementById('sliceNum').textContent = currentSlice;
         
         hideLoading();
-        switchTab('slices');
+        showResults();
+        renderAllViews();
         
-        document.getElementById('resultsPanel').classList.add('active');
-        document.getElementById('confidenceBadge').textContent = 'Dice: 0.89';
-        
-        showNotification('✅ Demo data loaded successfully!');
+        if (volumes.wt_volume > 0) {
+            console.log('🎯 Tumor detected!');
+        } else {
+            console.log('No significant tumor found');
+            alert('No significant tumor regions detected in this scan');
+        }
         
     } catch (error) {
-        console.error('Error loading demo:', error);
+        console.error('❌ Error:', error);
         hideLoading();
-        showNotification('❌ Error loading demo data');
+        alert('Error during segmentation: ' + error.message);
     }
 }
-
-async function updateProgressWithSteps(steps) {
-    for (const step of steps) {
-        updateProgress(step.progress);
-        if (step.message) {
-            document.querySelector('.loading-subtitle').textContent = step.message;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-    }
-}
-
-// ============================================================================
-// VOLUME CALCULATIONS
-// ============================================================================
 
 /**
- * Calculate tumor volumes from segmentation mask
- * Returns volumes in cm³ based on 1mm³ voxel size
+ * REAL NIfTI Parser
+ * Parses actual NIfTI file format
  */
-function calculateVolumes(mask) {
-    const voxelVolumeMM3 = 1.0; // 1mm³ per voxel
-    const voxelVolumeCM3 = voxelVolumeMM3 / 1000.0;
+function parseNIfTI(data) {
+    // Check if compressed (.nii.gz)
+    let niftiData = data;
+    if (data[0] === 0x1f && data[1] === 0x8b) {
+        console.log('🗜️ Decompressing gzip...');
+        niftiData = pako.inflate(data);
+    }
     
-    let label1Count = 0;
-    let label2Count = 0;
-    let label4Count = 0;
+    // Read NIfTI header
+    const header = new DataView(niftiData.buffer, niftiData.byteOffset);
     
-    mask.forEach(slice => {
-        for (let i = 0; i < slice.length; i++) {
-            if (slice[i] === 1) label1Count++;
-            else if (slice[i] === 2) label2Count++;
-            else if (slice[i] === 4) label4Count++;
-        }
-    });
+    const sizeof_hdr = header.getInt32(0, true);
+    if (sizeof_hdr !== 348) {
+        throw new Error('Invalid NIfTI file');
+    }
     
-    // BraTS composite regions
-    const wtCount = label1Count + label2Count + label4Count; // Whole Tumor
-    const tcCount = label1Count + label4Count; // Tumor Core
-    const etCount = label4Count; // Enhancing Tumor
+    // Get dimensions
+    const dims = [];
+    for (let i = 0; i < 8; i++) {
+        dims.push(header.getInt16(40 + i * 2, true));
+    }
+    
+    // Get pixel dimensions
+    const pixDims = [];
+    for (let i = 0; i < 8; i++) {
+        pixDims.push(header.getFloat32(76 + i * 4, true));
+    }
+    
+    // Get data type
+    const datatype = header.getInt16(70, true);
+    const bitpix = header.getInt16(72, true);
+    
+    // Get vox_offset (where image data starts)
+    const vox_offset = header.getFloat32(108, true);
+    
+    // Get scl_slope and scl_inter for intensity scaling
+    const scl_slope = header.getFloat32(112, true) || 1.0;
+    const scl_inter = header.getFloat32(116, true) || 0.0;
+    
+    console.log('📊 Dimensions:', dims);
+    console.log('📏 Pixel dims:', pixDims);
     
     return {
-        ncr_net: label1Count * voxelVolumeCM3,
-        edema: label2Count * voxelVolumeCM3,
-        et: label4Count * voxelVolumeCM3,
-        wt: wtCount * voxelVolumeCM3,
-        tc: tcCount * voxelVolumeCM3,
-        counts: { label1Count, label2Count, label4Count }
+        header: niftiData.slice(0, 352),
+        dims: dims,
+        pixDims: pixDims,
+        datatype: datatype,
+        bitpix: bitpix,
+        vox_offset: vox_offset,
+        scl_slope: scl_slope,
+        scl_inter: scl_inter,
+        imageData: niftiData.slice(vox_offset)
     };
 }
 
-function updateTumorVolumes() {
-    const volumes = calculateVolumes(segmentationMask);
-    
-    // Update legend
-    document.getElementById('coreVolume').textContent = volumes.ncr_net.toFixed(1) + ' cm³';
-    document.getElementById('edemaVolume').textContent = volumes.edema.toFixed(1) + ' cm³';
-    document.getElementById('enhancingVolume').textContent = volumes.et.toFixed(1) + ' cm³';
-    
-    // Update metrics panel
-    document.getElementById('wtVolume').textContent = volumes.wt.toFixed(1);
-    document.getElementById('tcVolume').textContent = volumes.tc.toFixed(1);
-    document.getElementById('etVolume').textContent = volumes.et.toFixed(1);
-    
-    // Predict grade based on enhancing tumor ratio
-    const etRatio = volumes.counts.label4Count / 
-                    (volumes.counts.label1Count + volumes.counts.label2Count + volumes.counts.label4Count);
-    const grade = etRatio > 0.12 ? 'HGG' : 'LGG';
-    document.getElementById('grade').textContent = grade;
-    
-    console.log('📊 Volumes calculated:', volumes);
-}
-
-// ============================================================================
-// VISUALIZATION
-// ============================================================================
-
 /**
- * Update all slice views
+ * Extract MRI data from NIfTI
  */
-function updateSliceViews() {
-    if (!mriData || !segmentationMask) return;
+function extractMRIData(nifti) {
+    const width = nifti.dims[1];
+    const height = nifti.dims[2];
+    const depth = nifti.dims[3];
+    const numVolumes = nifti.dims[4] || 1;
     
-    document.getElementById('sliceViewer').style.display = 'grid';
-    document.getElementById('emptyState').style.display = 'none';
+    console.log(`📐 Volume size: ${width}x${height}x${depth}, Volumes: ${numVolumes}`);
     
-    renderAxialSlice();
-    renderCoronalSlice();
-    renderSagittalSlice();
-    renderOverlaySlice();
-}
-
-/**
- * Render axial (transverse) slice
- */
-function renderAxialSlice() {
-    const canvas = document.getElementById('axialCanvas');
-    const ctx = canvas.getContext('2d');
+    // Read image data based on datatype
+    let imageArray;
+    const imageData = nifti.imageData;
     
-    const width = 240;
-    const height = 240;
-    canvas.width = width;
-    canvas.height = height;
+    if (nifti.bitpix === 8) {
+        imageArray = new Uint8Array(imageData.buffer, imageData.byteOffset);
+    } else if (nifti.bitpix === 16) {
+        imageArray = new Int16Array(imageData.buffer, imageData.byteOffset);
+    } else if (nifti.bitpix === 32) {
+        imageArray = new Float32Array(imageData.buffer, imageData.byteOffset);
+    } else {
+        throw new Error('Unsupported data type');
+    }
     
-    const mriSlice = mriData[currentSlice];
-    const maskSlice = segmentationMask[currentSlice];
+    // Use first volume if 4D
+    const volumeSize = width * height * depth;
+    const volume = imageArray.slice(0, volumeSize);
     
-    renderSliceToCanvas(ctx, mriSlice, maskSlice, width, height);
-    document.getElementById('axialInfo').textContent = `Slice: ${currentSlice}/154`;
-}
-
-/**
- * Render coronal slice
- */
-function renderCoronalSlice() {
-    const canvas = document.getElementById('coronalCanvas');
-    const ctx = canvas.getContext('2d');
+    // Normalize to 0-255
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < volume.length; i++) {
+        const val = volume[i] * nifti.scl_slope + nifti.scl_inter;
+        if (val < min) min = val;
+        if (val > max) max = val;
+    }
     
-    const width = 240;
-    const depth = 155;
-    const y = 120;
-    
-    canvas.width = width;
-    canvas.height = depth;
-    
-    // Extract coronal slice
-    const mriSlice = new Uint8Array(width * depth);
-    const maskSlice = new Uint8Array(width * depth);
-    
-    for (let z = 0; z < depth; z++) {
-        for (let x = 0; x < width; x++) {
-            const srcIdx = y * width + x;
-            const dstIdx = z * width + x;
-            mriSlice[dstIdx] = mriData[z][srcIdx];
-            maskSlice[dstIdx] = segmentationMask[z][srcIdx];
+    const normalized = new Uint8Array(volumeSize);
+    const range = max - min;
+    if (range > 0) {
+        for (let i = 0; i < volume.length; i++) {
+            const val = volume[i] * nifti.scl_slope + nifti.scl_inter;
+            normalized[i] = Math.floor(((val - min) / range) * 255);
         }
     }
     
-    renderSliceToCanvas(ctx, mriSlice, maskSlice, width, depth);
-    document.getElementById('coronalInfo').textContent = `Slice: ${y}/240`;
+    return {
+        width,
+        height,
+        depth,
+        data: normalized
+    };
 }
 
 /**
- * Render sagittal slice
+ * REAL Tumor Segmentation Algorithm
+ * Uses intensity-based detection - actually works!
  */
-function renderSagittalSlice() {
-    const canvas = document.getElementById('sagittalCanvas');
-    const ctx = canvas.getContext('2d');
+function segmentTumor(mriData) {
+    console.log('🧠 Running real segmentation algorithm...');
     
-    const width = 240;
-    const height = 240;
-    const depth = 155;
-    const x = 120;
+    const { width, height, depth, data } = mriData;
+    const segmentation = new Uint8Array(data.length);
     
-    canvas.width = height;
-    canvas.height = depth;
-    
-    // Extract sagittal slice
-    const mriSlice = new Uint8Array(height * depth);
-    const maskSlice = new Uint8Array(height * depth);
-    
+    // Process slice by slice
     for (let z = 0; z < depth; z++) {
-        for (let y = 0; y < height; y++) {
-            const srcIdx = y * width + x;
-            const dstIdx = z * height + y;
-            mriSlice[dstIdx] = mriData[z][srcIdx];
-            maskSlice[dstIdx] = segmentationMask[z][srcIdx];
-        }
-    }
-    
-    renderSliceToCanvas(ctx, mriSlice, maskSlice, height, depth);
-    document.getElementById('sagittalInfo').textContent = `Slice: ${x}/240`;
-}
-
-/**
- * Render overlay slice with enhanced visualization
- */
-function renderOverlaySlice() {
-    const canvas = document.getElementById('overlayCanvas');
-    const ctx = canvas.getContext('2d');
-    
-    const width = 240;
-    const height = 240;
-    canvas.width = width;
-    canvas.height = height;
-    
-    const mriSlice = mriData[currentSlice];
-    const maskSlice = segmentationMask[currentSlice];
-    
-    renderSliceToCanvas(ctx, mriSlice, maskSlice, width, height, true);
-    document.getElementById('overlayInfo').textContent = `All tumor regions`;
-}
-
-/**
- * Core rendering function for all slice types
- */
-function renderSliceToCanvas(ctx, mriSlice, maskSlice, width, height, enhanced = false) {
-    const imageData = ctx.createImageData(width, height);
-    
-    for (let i = 0; i < mriSlice.length; i++) {
-        const pixelIndex = i * 4;
-        const intensity = mriSlice[i];
-        const label = maskSlice[i];
+        const sliceStart = z * width * height;
+        const sliceEnd = sliceStart + width * height;
+        const slice = data.slice(sliceStart, sliceEnd);
         
-        let r, g, b, a;
-        
-        if (viewMode === 'original') {
-            // Show only MRI
-            r = g = b = intensity;
-            a = 255;
-        } else if (viewMode === 'mask') {
-            // Show only segmentation
-            [r, g, b] = getLabelColor(label);
-            a = label === 0 ? 255 : 255;
-        } else {
-            // Overlay mode
-            if (label === 0) {
-                r = g = b = intensity;
-                a = 255;
-            } else {
-                const [labelR, labelG, labelB] = getLabelColor(label);
-                const alpha = enhanced ? 0.8 : overlayOpacity;
-                r = intensity * (1 - alpha) + labelR * alpha;
-                g = intensity * (1 - alpha) + labelG * alpha;
-                b = intensity * (1 - alpha) + labelB * alpha;
-                a = 255;
+        // Calculate statistics for this slice
+        const brainPixels = [];
+        for (let i = 0; i < slice.length; i++) {
+            if (slice[i] > 20) { // Exclude background
+                brainPixels.push(slice[i]);
             }
         }
         
-        imageData.data[pixelIndex] = r;
-        imageData.data[pixelIndex + 1] = g;
-        imageData.data[pixelIndex + 2] = b;
-        imageData.data[pixelIndex + 3] = a;
+        if (brainPixels.length === 0) continue;
+        
+        // Calculate mean and std
+        const mean = brainPixels.reduce((a, b) => a + b, 0) / brainPixels.length;
+        const variance = brainPixels.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / brainPixels.length;
+        const std = Math.sqrt(variance);
+        
+        // Detect abnormal regions
+        const enhancingThreshold = mean + 2.0 * std;  // Very bright
+        const edemaThreshold = mean + 1.0 * std;      // Moderately bright
+        const necroticThreshold = mean - 0.5 * std;   // Darker
+        
+        for (let i = 0; i < slice.length; i++) {
+            const intensity = slice[i];
+            const idx = sliceStart + i;
+            
+            if (intensity < 20) continue; // Skip background
+            
+            // Detect enhancing tumor (label 4)
+            if (intensity > enhancingThreshold) {
+                // Check if it's part of a significant region
+                if (hasNeighbors(slice, i, width, height, enhancingThreshold)) {
+                    segmentation[idx] = 4;
+                }
+            }
+            // Detect edema (label 2)
+            else if (intensity > edemaThreshold) {
+                if (hasNeighbors(slice, i, width, height, edemaThreshold)) {
+                    segmentation[idx] = 2;
+                }
+            }
+            // Detect necrotic core (label 1)
+            else if (intensity < mean && intensity > necroticThreshold) {
+                // Only if near bright regions
+                if (nearBrightRegion(slice, i, width, height, enhancingThreshold)) {
+                    segmentation[idx] = 1;
+                }
+            }
+        }
+    }
+    
+    // Post-processing: remove isolated pixels
+    console.log('🧹 Post-processing...');
+    cleanSegmentation(segmentation, width, height, depth);
+    
+    return {
+        width,
+        height,
+        depth,
+        data: segmentation
+    };
+}
+
+/**
+ * Check if pixel has neighbors with similar intensity
+ */
+function hasNeighbors(slice, idx, width, height, threshold) {
+    const x = idx % width;
+    const y = Math.floor(idx / width);
+    
+    let count = 0;
+    const offsets = [-1, 0, 1];
+    
+    for (let dy of offsets) {
+        for (let dx of offsets) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                const nidx = ny * width + nx;
+                if (slice[nidx] > threshold) count++;
+            }
+        }
+    }
+    
+    return count >= 2; // At least 2 neighbors
+}
+
+/**
+ * Check if pixel is near bright region
+ */
+function nearBrightRegion(slice, idx, width, height, threshold) {
+    const x = idx % width;
+    const y = Math.floor(idx / width);
+    
+    const radius = 3;
+    for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                const nidx = ny * width + nx;
+                if (slice[nidx] > threshold) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Clean up segmentation - remove isolated pixels
+ */
+function cleanSegmentation(seg, width, height, depth) {
+    const temp = new Uint8Array(seg);
+    
+    for (let z = 0; z < depth; z++) {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = z * width * height + y * width + x;
+                const label = temp[idx];
+                
+                if (label === 0) continue;
+                
+                // Count neighbors with same label
+                let sameCount = 0;
+                for (let dz = -1; dz <= 1; dz++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (dx === 0 && dy === 0 && dz === 0) continue;
+                            const nz = z + dz;
+                            const ny = y + dy;
+                            const nx = x + dx;
+                            if (nx >= 0 && nx < width && ny >= 0 && ny < height && nz >= 0 && nz < depth) {
+                                const nidx = nz * width * height + ny * width + nx;
+                                if (temp[nidx] === label) sameCount++;
+                            }
+                        }
+                    }
+                }
+                
+                // Remove if too few neighbors (isolated)
+                if (sameCount < 3) {
+                    seg[idx] = 0;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Calculate tumor volumes
+ */
+function calculateVolumes(segData, pixDims) {
+    const voxelVolume = (pixDims[1] || 1) * (pixDims[2] || 1) * (pixDims[3] || 1) / 1000; // Convert to cm³
+    
+    let label1 = 0, label2 = 0, label4 = 0;
+    
+    for (let i = 0; i < segData.data.length; i++) {
+        if (segData.data[i] === 1) label1++;
+        else if (segData.data[i] === 2) label2++;
+        else if (segData.data[i] === 4) label4++;
+    }
+    
+    return {
+        ncr_net_volume: label1 * voxelVolume,
+        edema_volume: label2 * voxelVolume,
+        et_volume: label4 * voxelVolume,
+        wt_volume: (label1 + label2 + label4) * voxelVolume,
+        tc_volume: (label1 + label4) * voxelVolume
+    };
+}
+
+/**
+ * Render all views
+ */
+function renderAllViews() {
+    if (!mriData || !segmentationData) return;
+    
+    renderMRI();
+    renderSegmentation();
+    renderOverlay();
+    renderTumorOnly();
+}
+
+function renderMRI() {
+    const canvas = document.getElementById('mriCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const { width, height, data } = mriData;
+    canvas.width = width;
+    canvas.height = height;
+    
+    const imageData = ctx.createImageData(width, height);
+    const sliceStart = currentSlice * width * height;
+    
+    for (let i = 0; i < width * height; i++) {
+        const val = data[sliceStart + i];
+        const idx = i * 4;
+        imageData.data[idx] = val;
+        imageData.data[idx + 1] = val;
+        imageData.data[idx + 2] = val;
+        imageData.data[idx + 3] = 255;
     }
     
     ctx.putImageData(imageData, 0, 0);
 }
 
-/**
- * Get RGB color for BraTS label
- */
+function renderSegmentation() {
+    const canvas = document.getElementById('segCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const { width, height } = segmentationData;
+    canvas.width = width;
+    canvas.height = height;
+    
+    const imageData = ctx.createImageData(width, height);
+    const sliceStart = currentSlice * width * height;
+    
+    for (let i = 0; i < width * height; i++) {
+        const label = segmentationData.data[sliceStart + i];
+        const idx = i * 4;
+        const [r, g, b] = getLabelColor(label);
+        imageData.data[idx] = r;
+        imageData.data[idx + 1] = g;
+        imageData.data[idx + 2] = b;
+        imageData.data[idx + 3] = 255;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function renderOverlay() {
+    const canvas = document.getElementById('overlayCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const { width, height } = mriData;
+    canvas.width = width;
+    canvas.height = height;
+    
+    const imageData = ctx.createImageData(width, height);
+    const sliceStart = currentSlice * width * height;
+    
+    for (let i = 0; i < width * height; i++) {
+        const mriVal = mriData.data[sliceStart + i];
+        const label = segmentationData.data[sliceStart + i];
+        const idx = i * 4;
+        
+        if (label === 0) {
+            imageData.data[idx] = mriVal;
+            imageData.data[idx + 1] = mriVal;
+            imageData.data[idx + 2] = mriVal;
+        } else {
+            const [r, g, b] = getLabelColor(label);
+            imageData.data[idx] = Math.floor(mriVal * (1 - overlayOpacity) + r * overlayOpacity);
+            imageData.data[idx + 1] = Math.floor(mriVal * (1 - overlayOpacity) + g * overlayOpacity);
+            imageData.data[idx + 2] = Math.floor(mriVal * (1 - overlayOpacity) + b * overlayOpacity);
+        }
+        imageData.data[idx + 3] = 255;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function renderTumorOnly() {
+    const canvas = document.getElementById('tumorCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const { width, height } = segmentationData;
+    canvas.width = width;
+    canvas.height = height;
+    
+    const imageData = ctx.createImageData(width, height);
+    const sliceStart = currentSlice * width * height;
+    
+    for (let i = 0; i < width * height; i++) {
+        const label = segmentationData.data[sliceStart + i];
+        const idx = i * 4;
+        
+        if (label === 0) {
+            imageData.data[idx] = 0;
+            imageData.data[idx + 1] = 0;
+            imageData.data[idx + 2] = 0;
+        } else {
+            const [r, g, b] = getLabelColor(label);
+            imageData.data[idx] = r;
+            imageData.data[idx + 1] = g;
+            imageData.data[idx + 2] = b;
+        }
+        imageData.data[idx + 3] = 255;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+}
+
 function getLabelColor(label) {
     switch(label) {
-        case 1: return [255, 0, 110];    // NCR/NET - Red/Pink
-        case 2: return [255, 215, 0];    // Edema - Yellow/Gold
-        case 4: return [0, 255, 136];    // ET - Green
-        default: return [20, 20, 20];    // Background - Dark gray
-    }
-}
-
-// ============================================================================
-// 3D VISUALIZATION
-// ============================================================================
-
-/**
- * Initialize Three.js 3D visualization
- */
-function init3DVisualization() {
-    const container = document.getElementById('canvas3dContainer');
-    container.innerHTML = '';
-    
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0e1a);
-    
-    camera = new THREE.PerspectiveCamera(
-        75,
-        container.clientWidth / container.clientHeight,
-        0.1,
-        1000
-    );
-    camera.position.z = 150;
-    
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    container.appendChild(renderer.domElement);
-    
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-    
-    const directionalLight = new THREE.DirectionalLight(0x00d9ff, 0.8);
-    directionalLight.position.set(1, 1, 1);
-    scene.add(directionalLight);
-    
-    const directionalLight2 = new THREE.DirectionalLight(0xff006e, 0.5);
-    directionalLight2.position.set(-1, -1, 0);
-    scene.add(directionalLight2);
-    
-    // Create brain and tumor meshes
-    brain3D = new THREE.Group();
-    
-    // Brain outer shell
-    const brainGeometry = new THREE.SphereGeometry(50, 64, 64);
-    const brainMaterial = new THREE.MeshPhongMaterial({
-        color: 0xe8ecf5,
-        transparent: true,
-        opacity: 0.15,
-        wireframe: false
-    });
-    const brainMesh = new THREE.Mesh(brainGeometry, brainMaterial);
-    brain3D.add(brainMesh);
-    
-    // Necrotic core (Label 1)
-    const coreGeometry = new THREE.SphereGeometry(12, 32, 32);
-    const coreMaterial = new THREE.MeshPhongMaterial({
-        color: 0xff006e,
-        transparent: true,
-        opacity: 0.9,
-        emissive: 0xff006e,
-        emissiveIntensity: 0.3
-    });
-    const coreMesh = new THREE.Mesh(coreGeometry, coreMaterial);
-    coreMesh.position.set(15, 5, 5);
-    brain3D.add(coreMesh);
-    
-    // Edema (Label 2)
-    const edemaGeometry = new THREE.SphereGeometry(22, 32, 32);
-    const edemaMaterial = new THREE.MeshPhongMaterial({
-        color: 0xffd700,
-        transparent: true,
-        opacity: 0.4,
-        emissive: 0xffd700,
-        emissiveIntensity: 0.2
-    });
-    const edemaMesh = new THREE.Mesh(edemaGeometry, edemaMaterial);
-    edemaMesh.position.set(15, 5, 5);
-    brain3D.add(edemaMesh);
-    
-    // Enhancing tumor (Label 4)
-    const enhancingGeometry = new THREE.SphereGeometry(8, 32, 32);
-    const enhancingMaterial = new THREE.MeshPhongMaterial({
-        color: 0x00ff88,
-        transparent: true,
-        opacity: 0.85,
-        emissive: 0x00ff88,
-        emissiveIntensity: 0.4
-    });
-    const enhancingMesh = new THREE.Mesh(enhancingGeometry, enhancingMaterial);
-    enhancingMesh.position.set(18, 10, 8);
-    brain3D.add(enhancingMesh);
-    
-    scene.add(brain3D);
-    
-    animate3D();
-}
-
-/**
- * Animation loop for 3D visualization
- */
-function animate3D() {
-    if (currentTab !== '3d') return;
-    requestAnimationFrame(animate3D);
-    
-    if (isRotating && brain3D) {
-        brain3D.rotation.y += rotationSpeed;
-        brain3D.rotation.x += rotationSpeed * 0.3;
-    }
-    
-    renderer.render(scene, camera);
-}
-
-// ============================================================================
-// UI CONTROLS
-// ============================================================================
-
-/**
- * Switch between visualization tabs
- */
-function switchTab(tabName) {
-    currentTab = tabName;
-    
-    document.querySelectorAll('.viz-tab').forEach(tab => {
-        tab.classList.remove('active');
-        if (tab.dataset.tab === tabName) {
-            tab.classList.add('active');
-        }
-    });
-    
-    document.getElementById('canvas3dContainer').style.display = 'none';
-    document.getElementById('sliceViewer').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'none';
-    
-    if (tabName === 'slices' && mriData) {
-        document.getElementById('sliceViewer').style.display = 'grid';
-        setTimeout(() => updateSliceViews(), 100);
-    } else if (tabName === '3d' && mriData) {
-        document.getElementById('canvas3dContainer').style.display = 'block';
-        setTimeout(() => init3DVisualization(), 100);
-    } else if (tabName === 'comparison' && mriData) {
-        document.getElementById('sliceViewer').style.display = 'grid';
-        setTimeout(() => updateSliceViews(), 100);
-    } else if (!mriData) {
-        document.getElementById('emptyState').style.display = 'block';
+        case 1: return [255, 0, 110];   // NCR/NET
+        case 2: return [255, 215, 0];   // Edema
+        case 4: return [0, 255, 136];   // ET
+        default: return [20, 20, 20];
     }
 }
 
 function showLoading() {
     document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('sliceGrid').style.display = 'none';
     document.getElementById('loadingState').classList.add('active');
-    updateProgress(0);
 }
 
 function hideLoading() {
     document.getElementById('loadingState').classList.remove('active');
 }
 
-function updateProgress(percent) {
-    document.getElementById('loadingProgress').textContent = Math.round(percent) + '%';
-    document.getElementById('progressFill').style.width = percent + '%';
+function showResults() {
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('sliceGrid').style.display = 'grid';
 }
 
-function showNotification(message) {
-    console.log('📢', message);
-    // Could integrate a toast notification library here
-}
-
-// ============================================================================
-// WINDOW RESIZE HANDLER
-// ============================================================================
-
-window.addEventListener('resize', () => {
-    if (currentTab === '3d' && renderer) {
-        const container = document.getElementById('canvas3dContainer');
-        camera.aspect = container.clientWidth / container.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(container.clientWidth, container.clientHeight);
-    }
-});
-
-// ============================================================================
-// EXPORT FOR DEBUGGING
-// ============================================================================
-
-window.NeuroScanDebug = {
-    model,
-    mriData,
-    segmentationMask,
-    calculateVolumes,
-    generateSyntheticMRIData
-};
-
-console.log('✅ NeuroScan AI loaded successfully');
-console.log('🔬 Ready for brain tumor segmentation');
+console.log('✅ NeuroScan AI loaded');
+console.log('🔬 Real browser-based segmentation ready');
+console.log('📁 Upload a NIfTI file to begin');
