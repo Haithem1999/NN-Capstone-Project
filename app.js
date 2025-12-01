@@ -63,7 +63,16 @@ function handleFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
         console.log('📁 File selected:', file.name);
+        console.log('File size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
         document.getElementById('segmentBtn').disabled = false;
+        
+        // Update upload area to show file name
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.innerHTML = `
+            <div class="upload-icon">✅</div>
+            <div><strong>${file.name}</strong></div>
+            <small style="color: var(--text-secondary);">${(file.size / 1024 / 1024).toFixed(2)} MB</small>
+        `;
     }
 }
 
@@ -76,33 +85,57 @@ async function runSegmentation() {
         return;
     }
     
+    console.log('='.repeat(60));
+    console.log('🔬 STARTING SEGMENTATION');
+    console.log('File:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+    console.log('='.repeat(60));
+    
     showLoading();
     const startTime = performance.now();
     
     try {
-        console.log('🔬 Starting segmentation...');
-        
-        // Read NIfTI file
-        console.log('📖 Reading NIfTI file...');
+        // Read file
+        console.log('\n📖 Step 1: Reading file...');
         const arrayBuffer = await file.arrayBuffer();
+        console.log('✅ File read:', arrayBuffer.byteLength, 'bytes');
         const data = new Uint8Array(arrayBuffer);
         
         // Parse NIfTI
+        console.log('\n📖 Step 2: Parsing NIfTI...');
         const nifti = parseNIfTI(data);
-        console.log('✅ NIfTI parsed:', nifti.dims);
+        console.log('✅ NIfTI parsed successfully');
+        console.log('   Dimensions:', nifti.dims);
         
         // Extract MRI data
+        console.log('\n📖 Step 3: Extracting MRI data...');
         mriData = extractMRIData(nifti);
         console.log('✅ MRI data extracted');
+        console.log('   Volume:', mriData.width, 'x', mriData.height, 'x', mriData.depth);
         
-        // Run REAL segmentation
-        console.log('🔬 Running intensity-based segmentation...');
+        // Run segmentation
+        console.log('\n🔬 Step 4: Running segmentation...');
         segmentationData = segmentTumor(mriData);
         console.log('✅ Segmentation complete');
         
+        // Count labeled voxels
+        let label1 = 0, label2 = 0, label4 = 0;
+        for (let i = 0; i < segmentationData.data.length; i++) {
+            if (segmentationData.data[i] === 1) label1++;
+            else if (segmentationData.data[i] === 2) label2++;
+            else if (segmentationData.data[i] === 4) label4++;
+        }
+        console.log('   Label 1 (Necrotic):', label1, 'voxels');
+        console.log('   Label 2 (Edema):', label2, 'voxels');
+        console.log('   Label 4 (Enhancing):', label4, 'voxels');
+        console.log('   Total tumor:', label1 + label2 + label4, 'voxels');
+        
         // Calculate volumes
+        console.log('\n📊 Step 5: Calculating volumes...');
         const volumes = calculateVolumes(segmentationData, nifti.pixDims);
-        console.log('📊 Volumes:', volumes);
+        console.log('✅ Volumes calculated');
+        console.log('   WT:', volumes.wt_volume.toFixed(2), 'cm³');
+        console.log('   TC:', volumes.tc_volume.toFixed(2), 'cm³');
+        console.log('   ET:', volumes.et_volume.toFixed(2), 'cm³');
         
         // Update UI
         const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
@@ -118,21 +151,30 @@ async function runSegmentation() {
         currentSlice = parseInt(slider.value);
         document.getElementById('sliceNum').textContent = currentSlice;
         
+        console.log('\n✅ SEGMENTATION COMPLETE');
+        console.log('Processing time:', processingTime, 's');
+        console.log('='.repeat(60));
+        
         hideLoading();
         showResults();
         renderAllViews();
         
-        if (volumes.wt_volume > 0) {
+        if (volumes.wt_volume > 0.1) {
             console.log('🎯 Tumor detected!');
+            alert(`Segmentation complete!\n\nTumor volume: ${volumes.wt_volume.toFixed(1)} cm³\nProcessing time: ${processingTime}s`);
         } else {
-            console.log('No significant tumor found');
-            alert('No significant tumor regions detected in this scan');
+            console.log('⚠️ No significant tumor found');
+            alert('Segmentation complete!\n\nNo significant tumor regions detected in this scan.\nProcessing time: ' + processingTime + 's');
         }
         
     } catch (error) {
-        console.error('❌ Error:', error);
+        console.error('='.repeat(60));
+        console.error('❌ ERROR DURING SEGMENTATION');
+        console.error('Error:', error);
+        console.error('Stack:', error.stack);
+        console.error('='.repeat(60));
         hideLoading();
-        alert('Error during segmentation: ' + error.message);
+        alert('Error during segmentation:\n\n' + error.message + '\n\nCheck browser console (F12) for details.');
     }
 }
 
@@ -141,25 +183,49 @@ async function runSegmentation() {
  * Parses actual NIfTI file format
  */
 function parseNIfTI(data) {
+    console.log('📖 Parsing NIfTI file...');
+    console.log('Raw data size:', data.length, 'bytes');
+    
     // Check if compressed (.nii.gz)
     let niftiData = data;
     if (data[0] === 0x1f && data[1] === 0x8b) {
-        console.log('🗜️ Decompressing gzip...');
-        niftiData = pako.inflate(data);
+        console.log('🗜️ Detected gzip compression, decompressing...');
+        try {
+            niftiData = pako.inflate(data);
+            console.log('✅ Decompressed size:', niftiData.length, 'bytes');
+        } catch (e) {
+            console.error('❌ Decompression failed:', e);
+            throw new Error('Failed to decompress gzip file: ' + e.message);
+        }
+    } else {
+        console.log('📄 Uncompressed NIfTI file');
     }
     
     // Read NIfTI header
     const header = new DataView(niftiData.buffer, niftiData.byteOffset);
     
     const sizeof_hdr = header.getInt32(0, true);
+    console.log('Header size:', sizeof_hdr);
+    
     if (sizeof_hdr !== 348) {
-        throw new Error('Invalid NIfTI file');
+        throw new Error('Invalid NIfTI file: sizeof_hdr = ' + sizeof_hdr + ' (expected 348)');
     }
     
     // Get dimensions
-    const dims = [];
+    const dim = [];
     for (let i = 0; i < 8; i++) {
-        dims.push(header.getInt16(40 + i * 2, true));
+        dim.push(header.getInt16(40 + i * 2, true));
+    }
+    console.log('Dimensions:', dim);
+    
+    const ndim = dim[0];
+    const width = dim[1];
+    const height = dim[2];
+    const depth = dim[3];
+    const volumes = dim[4] || 1;
+    
+    if (width <= 0 || height <= 0 || depth <= 0) {
+        throw new Error(`Invalid dimensions: ${width}x${height}x${depth}`);
     }
     
     // Get pixel dimensions
@@ -167,31 +233,35 @@ function parseNIfTI(data) {
     for (let i = 0; i < 8; i++) {
         pixDims.push(header.getFloat32(76 + i * 4, true));
     }
+    console.log('Pixel dimensions:', pixDims);
     
     // Get data type
     const datatype = header.getInt16(70, true);
     const bitpix = header.getInt16(72, true);
+    console.log('Data type:', datatype, 'Bits per pixel:', bitpix);
     
     // Get vox_offset (where image data starts)
     const vox_offset = header.getFloat32(108, true);
+    console.log('Voxel offset:', vox_offset);
     
     // Get scl_slope and scl_inter for intensity scaling
     const scl_slope = header.getFloat32(112, true) || 1.0;
     const scl_inter = header.getFloat32(116, true) || 0.0;
+    console.log('Scaling: slope =', scl_slope, 'intercept =', scl_inter);
     
-    console.log('📊 Dimensions:', dims);
-    console.log('📏 Pixel dims:', pixDims);
+    const imageOffset = Math.floor(vox_offset) || 352;
+    console.log('Image data starts at byte:', imageOffset);
     
     return {
         header: niftiData.slice(0, 352),
-        dims: dims,
+        dims: [ndim, width, height, depth, volumes],
         pixDims: pixDims,
         datatype: datatype,
         bitpix: bitpix,
-        vox_offset: vox_offset,
+        vox_offset: imageOffset,
         scl_slope: scl_slope,
         scl_inter: scl_inter,
-        imageData: niftiData.slice(vox_offset)
+        imageData: niftiData.slice(imageOffset)
     };
 }
 
@@ -204,27 +274,46 @@ function extractMRIData(nifti) {
     const depth = nifti.dims[3];
     const numVolumes = nifti.dims[4] || 1;
     
-    console.log(`📐 Volume size: ${width}x${height}x${depth}, Volumes: ${numVolumes}`);
+    console.log(`📐 Extracting volume: ${width}x${height}x${depth}, Volumes: ${numVolumes}`);
+    console.log(`Total voxels expected: ${width * height * depth}`);
     
     // Read image data based on datatype
     let imageArray;
     const imageData = nifti.imageData;
     
-    if (nifti.bitpix === 8) {
-        imageArray = new Uint8Array(imageData.buffer, imageData.byteOffset);
-    } else if (nifti.bitpix === 16) {
-        imageArray = new Int16Array(imageData.buffer, imageData.byteOffset);
-    } else if (nifti.bitpix === 32) {
-        imageArray = new Float32Array(imageData.buffer, imageData.byteOffset);
-    } else {
-        throw new Error('Unsupported data type');
+    console.log('Image data buffer size:', imageData.length, 'bytes');
+    console.log('Bits per pixel:', nifti.bitpix);
+    
+    try {
+        if (nifti.bitpix === 8) {
+            imageArray = new Uint8Array(imageData.buffer, imageData.byteOffset);
+            console.log('Using Uint8Array');
+        } else if (nifti.bitpix === 16) {
+            imageArray = new Int16Array(imageData.buffer, imageData.byteOffset);
+            console.log('Using Int16Array');
+        } else if (nifti.bitpix === 32 && nifti.datatype === 16) {
+            imageArray = new Float32Array(imageData.buffer, imageData.byteOffset);
+            console.log('Using Float32Array');
+        } else if (nifti.bitpix === 32) {
+            imageArray = new Int32Array(imageData.buffer, imageData.byteOffset);
+            console.log('Using Int32Array');
+        } else {
+            throw new Error(`Unsupported data type: bitpix=${nifti.bitpix}, datatype=${nifti.datatype}`);
+        }
+    } catch (e) {
+        console.error('❌ Error creating typed array:', e);
+        throw new Error('Failed to read image data: ' + e.message);
     }
+    
+    console.log('Image array length:', imageArray.length);
     
     // Use first volume if 4D
     const volumeSize = width * height * depth;
+    console.log('Taking first', volumeSize, 'voxels');
     const volume = imageArray.slice(0, volumeSize);
     
-    // Normalize to 0-255
+    // Find min and max for normalization
+    console.log('🔍 Finding min/max for normalization...');
     let min = Infinity, max = -Infinity;
     for (let i = 0; i < volume.length; i++) {
         const val = volume[i] * nifti.scl_slope + nifti.scl_inter;
@@ -232,13 +321,20 @@ function extractMRIData(nifti) {
         if (val > max) max = val;
     }
     
+    console.log('Intensity range:', min, 'to', max);
+    
+    // Normalize to 0-255
     const normalized = new Uint8Array(volumeSize);
     const range = max - min;
+    
     if (range > 0) {
         for (let i = 0; i < volume.length; i++) {
             const val = volume[i] * nifti.scl_slope + nifti.scl_inter;
             normalized[i] = Math.floor(((val - min) / range) * 255);
         }
+        console.log('✅ Normalized to 0-255');
+    } else {
+        console.warn('⚠️ No intensity variation found');
     }
     
     return {
