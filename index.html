@@ -3,374 +3,1499 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeuroScan AI - Real Browser Segmentation</title>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <title>BraTS 2020 - Brain Tumor Segmentation Analyzer</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --primary: #00d9ff;
-            --secondary: #ff006e;
-            --bg-dark: #0a0e1a;
-            --bg-card: #131829;
-            --text-primary: #e8ecf5;
-            --text-secondary: #8892b0;
-            --border: #2d3548;
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --accent-cyan: #00d4ff;
+            --accent-magenta: #ff00aa;
+            --accent-purple: #8b5cf6;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-yellow: #ffd93d;
+            --text-primary: #f0f0f5;
+            --text-secondary: #8888a0;
+            --text-muted: #555566;
+            --border-color: #2a2a3a;
+            --tumor-necrotic: #ff4444;
+            --tumor-edema: #44ff44;
+            --tumor-enhancing: #ffff44;
+            --tumor-core: #ff8844;
+            --glass-bg: rgba(18, 18, 26, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.08);
         }
-        
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: 'Manrope', sans-serif;
-            background: var(--bg-dark);
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
             color: var(--text-primary);
-            line-height: 1.6;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
-        
-        nav {
-            background: rgba(10, 14, 26, 0.95);
-            padding: 1rem 2rem;
-            border-bottom: 1px solid var(--border);
+
+        /* Animated background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: 
+                radial-gradient(ellipse at 20% 20%, rgba(0, 212, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(255, 0, 170, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(139, 92, 246, 0.04) 0%, transparent 60%);
+            animation: bgPulse 20s ease-in-out infinite;
+        }
+
+        @keyframes bgPulse {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(2%, 2%) scale(1.02); }
+            50% { transform: translate(-1%, 1%) scale(0.98); }
+            75% { transform: translate(1%, -2%) scale(1.01); }
+        }
+
+        /* Grid overlay */
+        .grid-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background-image: 
+                linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            opacity: 0.5;
+        }
+
+        /* Header */
+        header {
+            padding: 1.5rem 2rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-        
-        .logo { 
-            font-size: 1.5rem; 
-            font-weight: 800; 
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
-        
-        .badge {
-            background: linear-gradient(135deg, #00ff88, var(--primary));
-            padding: 0.4rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 700;
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-magenta));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            animation: pulse 3s ease-in-out infinite;
         }
-        
-        .container { 
-            max-width: 1400px; 
-            margin: 0 auto; 
-            padding: 2rem; 
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(255, 0, 170, 0.4); }
         }
-        
-        h1 {
-            font-size: 2.5rem;
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
+
+        .logo-text h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
+            background-clip: text;
         }
-        
-        .subtitle { 
-            color: var(--text-secondary); 
-            margin-bottom: 2rem; 
-        }
-        
-        .main-grid { 
-            display: grid; 
-            grid-template-columns: 350px 1fr; 
-            gap: 2rem; 
-        }
-        
-        .panel {
-            background: var(--bg-card);
-            border-radius: 16px;
-            border: 1px solid var(--border);
-            padding: 1.5rem;
-        }
-        
-        .upload-area {
-            border: 2px dashed var(--border);
-            border-radius: 12px;
-            padding: 2rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-bottom: 1rem;
-        }
-        
-        .upload-area:hover { 
-            border-color: var(--primary); 
-            transform: translateY(-2px); 
-        }
-        
-        .upload-icon { font-size: 3rem; margin-bottom: 1rem; }
-        
-        input[type="file"] { display: none; }
-        
-        .btn {
-            width: 100%;
-            padding: 1rem;
-            border: none;
-            border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            font-family: 'Manrope', sans-serif;
-            transition: all 0.3s;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--secondary));
-            color: white;
-        }
-        
-        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        .stat-grid { 
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 0.75rem; 
-            margin: 1rem 0; 
-        }
-        
-        .stat {
-            background: rgba(0, 217, 255, 0.1);
-            padding: 0.75rem;
-            border-radius: 8px;
-            text-align: center;
-        }
-        
-        .stat-label { 
-            font-size: 0.75rem; 
-            color: var(--text-secondary); 
-            text-transform: uppercase; 
-        }
-        
-        .stat-value {
-            font-size: 1.3rem;
-            font-weight: 700;
-            color: var(--primary);
-            font-family: 'JetBrains Mono', monospace;
-        }
-        
-        .viz-area { min-height: 600px; position: relative; }
-        
-        .slice-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-            padding: 1rem;
-        }
-        
-        .slice-box {
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .slice-title {
-            position: absolute;
-            top: 0.5rem;
-            left: 0.5rem;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
+
+        .logo-text span {
             font-size: 0.75rem;
-            font-family: 'JetBrains Mono', monospace;
-            z-index: 10;
-        }
-        
-        canvas { width: 100%; height: auto; display: block; }
-        
-        .loading {
-            display: none;
-            text-align: center;
-            padding: 3rem;
-        }
-        
-        .loading.active { display: block; }
-        
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid var(--border);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 1rem;
-        }
-        
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
             color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
         }
-        
-        .empty-icon { font-size: 4rem; margin-bottom: 1rem; opacity: 0.3; }
-        
-        .legend {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 1rem;
-            border-radius: 8px;
-            margin-top: 1rem;
+
+        .header-stats {
+            display: flex;
+            gap: 2rem;
         }
-        
-        .legend-item {
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Main layout */
+        .main-container {
+            display: grid;
+            grid-template-columns: 320px 1fr 340px;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            min-height: calc(100vh - 80px);
+        }
+
+        /* Panel styles */
+        .panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             gap: 0.5rem;
+        }
+
+        .panel-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--accent-cyan);
+            border-radius: 50%;
+            animation: blink 2s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .panel-content {
+            padding: 1.25rem;
+        }
+
+        /* Left panel - Controls */
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .control-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
             margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        /* File upload */
+        .file-upload-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(0, 212, 255, 0.02);
+        }
+
+        .file-upload-zone:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .file-upload-zone.drag-over {
+            border-color: var(--accent-magenta);
+            background: rgba(255, 0, 170, 0.1);
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-text {
             font-size: 0.85rem;
+            color: var(--text-secondary);
         }
-        
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
+
+        .upload-text strong {
+            color: var(--accent-cyan);
         }
-        
-        .slider-container { margin: 1rem 0; }
-        
-        .slider-label {
+
+        /* Select dropdown */
+        .custom-select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .custom-select:hover, .custom-select:focus {
+            border-color: var(--accent-cyan);
+            outline: none;
+        }
+
+        /* Slider */
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .slider-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
-            font-size: 0.85rem;
+            align-items: center;
         }
-        
+
+        .slider-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--accent-cyan);
+            background: var(--bg-tertiary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+
         input[type="range"] {
             width: 100%;
             height: 6px;
+            background: var(--bg-tertiary);
             border-radius: 3px;
-            background: var(--border);
             outline: none;
             -webkit-appearance: none;
         }
-        
+
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
             border-radius: 50%;
-            background: var(--primary);
             cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+            transition: transform 0.2s ease;
         }
 
-        .info-box {
-            background: rgba(0, 217, 255, 0.1);
-            border: 1px solid var(--primary);
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1rem;
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Toggle switches */
+        .toggle-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .toggle-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+        }
+
+        .toggle-item-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
             font-size: 0.85rem;
+        }
+
+        .color-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-tertiary);
+            border-radius: 24px;
+            transition: 0.3s;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-slider::before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-color: transparent;
+        }
+
+        .toggle-switch input:checked + .toggle-slider::before {
+            transform: translateX(20px);
+            background: white;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.25rem;
+            border: none;
+            border-radius: 8px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            color: white;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(0, 212, 255, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        /* Center panel - Viewer */
+        .viewer-panel {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .viewer-tabs {
+            display: flex;
+            gap: 0.25rem;
+            padding: 0 1rem;
+            background: var(--bg-tertiary);
+        }
+
+        .viewer-tab {
+            padding: 0.75rem 1.25rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border: none;
+            background: none;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .viewer-tab:hover {
+            color: var(--text-primary);
+        }
+
+        .viewer-tab.active {
+            color: var(--accent-cyan);
+            border-bottom-color: var(--accent-cyan);
+        }
+
+        .viewer-container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 4px;
+            padding: 1rem;
+            background: var(--bg-primary);
+        }
+
+        .viewer-single {
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+        }
+
+        .mri-view {
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .mri-view canvas {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+        }
+
+        .mri-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            font-size: 0.7rem;
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .mri-info {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            font-size: 0.65rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+
+        /* Crosshair */
+        .crosshair-h, .crosshair-v {
+            position: absolute;
+            background: rgba(0, 212, 255, 0.3);
+            pointer-events: none;
+        }
+
+        .crosshair-h {
+            width: 100%;
+            height: 1px;
+        }
+
+        .crosshair-v {
+            width: 1px;
+            height: 100%;
+        }
+
+        /* Viewer toolbar */
+        .viewer-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .toolbar-btn {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 1rem;
+        }
+
+        .toolbar-btn:hover {
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .toolbar-btn.active {
+            background: rgba(0, 212, 255, 0.2);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        /* Right panel - Metrics */
+        .metrics-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Tumor composition chart */
+        .composition-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .composition-bar {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .bar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .bar-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .bar-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .bar-track {
+            height: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease-out;
+        }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .metric-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-cyan);
+        }
+
+        .metric-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 0.25rem;
+        }
+
+        /* Dice scores */
+        .dice-scores {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .dice-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+
+        .dice-region {
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dice-score {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .score-excellent { color: var(--accent-green); }
+        .score-good { color: var(--accent-cyan); }
+        .score-moderate { color: var(--accent-yellow); }
+        .score-low { color: var(--accent-orange); }
+
+        /* Progress ring */
+        .progress-ring-container {
+            display: flex;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .progress-ring {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+
+        .progress-ring svg {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring circle {
+            fill: none;
+            stroke-width: 8;
+        }
+
+        .progress-ring .bg {
+            stroke: var(--bg-tertiary);
+        }
+
+        .progress-ring .progress {
+            stroke: url(#progressGradient);
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s ease-out;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .progress-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-cyan);
+        }
+
+        .progress-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        /* History log */
+        .history-log {
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 0.75rem;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .log-time {
+            color: var(--text-muted);
+        }
+
+        .log-action {
+            color: var(--accent-cyan);
+        }
+
+        .log-value {
+            color: var(--text-secondary);
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 15, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 3px solid var(--bg-tertiary);
+            border-top-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 2px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-magenta));
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toast {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            animation: slideIn 0.3s ease;
+            min-width: 300px;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast-icon {
+            font-size: 1.25rem;
+        }
+
+        .toast-success .toast-icon { color: var(--accent-green); }
+        .toast-error .toast-icon { color: var(--tumor-necrotic); }
+        .toast-info .toast-icon { color: var(--accent-cyan); }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .toast-message {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 10, 15, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-overlay.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.visible .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .modal-close:hover {
+            background: var(--tumor-necrotic);
+            color: white;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Responsive */
+        @media (max-width: 1400px) {
+            .main-container {
+                grid-template-columns: 280px 1fr 300px;
+            }
+        }
+
+        @media (max-width: 1100px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto;
+            }
+
+            .viewer-container {
+                min-height: 500px;
+            }
+        }
+
+        /* Demo mode indicator */
+        .demo-badge {
+            background: linear-gradient(135deg, var(--accent-orange), var(--accent-magenta));
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Keyboard shortcuts hint */
+        .shortcuts-hint {
+            position: fixed;
+            bottom: 1rem;
+            left: 1rem;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .shortcuts-hint kbd {
+            background: var(--bg-tertiary);
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            border: 1px solid var(--border-color);
+            margin: 0 0.15rem;
         }
     </style>
 </head>
 <body>
-    <nav>
-        <div class="logo">🧠 NeuroScan AI</div>
-        <div class="badge">BROWSER SEGMENTATION</div>
-    </nav>
+    <div class="bg-animation"></div>
+    <div class="grid-overlay"></div>
 
-    <div class="container">
-        <h1>Real Browser-Based Tumor Segmentation</h1>
-        <p class="subtitle">Upload NIfTI files - get real segmentation. No server needed.</p>
+    <header>
+        <div class="logo">
+            <div class="logo-icon">🧠</div>
+            <div class="logo-text">
+                <h1>BraTS 2020 Analyzer</h1>
+                <span>Brain Tumor Segmentation Visualization</span>
+            </div>
+        </div>
+        <div class="header-stats">
+            <div class="stat-item">
+                <div class="stat-value" id="currentPatient">---</div>
+                <div class="stat-label">Patient ID</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="tumorGrade">---</div>
+                <div class="stat-label">Tumor Grade</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="totalSlices">---</div>
+                <div class="stat-label">Total Slices</div>
+            </div>
+        </div>
+        <div class="demo-badge">Demo Mode</div>
+    </header>
 
-        <div class="main-grid">
-            <div class="panel">
-                <h3 style="margin-bottom: 1rem;">Upload MRI Scan</h3>
-                
-                <div class="info-box">
-                    ✅ Runs entirely in your browser<br>
-                    ✅ Real intensity-based segmentation<br>
-                    ✅ No data sent to server
-                </div>
-                
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">📁</div>
-                    <div>Click or drag NIfTI file</div>
-                    <small style="color: var(--text-secondary);">(.nii or .nii.gz)</small>
-                    <input type="file" id="fileInput" accept=".nii,.nii.gz">
-                </div>
-                
-                <button class="btn btn-primary" id="segmentBtn" disabled>
-                    🔬 Run Segmentation
-                </button>
-
-                <div class="stat-grid" style="margin-top: 1.5rem;">
-                    <div class="stat">
-                        <div class="stat-label">Time</div>
-                        <div class="stat-value" id="processTime">--</div>
+    <main class="main-container">
+        <!-- Left Panel - Controls -->
+        <aside class="panel controls-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">Controls</h2>
+            </div>
+            <div class="panel-content">
+                <!-- File Upload -->
+                <div class="control-group">
+                    <label class="control-label">Load Data</label>
+                    <div class="file-upload-zone" id="uploadZone">
+                        <div class="upload-icon">📁</div>
+                        <div class="upload-text">
+                            Drop NIfTI files or <strong>click to browse</strong>
+                        </div>
                     </div>
-                    <div class="stat">
-                        <div class="stat-label">Tumor Vol</div>
-                        <div class="stat-value" id="tumorVol">--</div>
-                    </div>
-                </div>
-
-                <div class="legend">
-                    <h4 style="margin-bottom: 0.75rem; font-size: 0.9rem;">Tumor Labels</h4>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background: #ff006e;"></div>
-                        <span>Necrotic Core</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background: #ffd700;"></div>
-                        <span>Edema</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background: #00ff88;"></div>
-                        <span>Enhancing</span>
-                    </div>
+                    <input type="file" id="fileInput" accept=".nii,.nii.gz" multiple hidden>
                 </div>
 
-                <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Slice</span>
-                        <span id="sliceNum">0</span>
-                    </div>
-                    <input type="range" id="sliceSlider" min="0" max="100" value="50" disabled>
+                <!-- Patient Selection -->
+                <div class="control-group">
+                    <label class="control-label">Patient Selection</label>
+                    <select class="custom-select" id="patientSelect">
+                        <option value="">Select Patient...</option>
+                        <option value="BraTS20_Training_001">BraTS20_Training_001 (HGG)</option>
+                        <option value="BraTS20_Training_002">BraTS20_Training_002 (HGG)</option>
+                        <option value="BraTS20_Training_003">BraTS20_Training_003 (LGG)</option>
+                        <option value="BraTS20_Training_010">BraTS20_Training_010 (HGG)</option>
+                        <option value="BraTS20_Training_015">BraTS20_Training_015 (LGG)</option>
+                    </select>
                 </div>
 
-                <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Overlay Opacity</span>
-                        <span id="opacityNum">0.7</span>
+                <!-- Slice Navigation -->
+                <div class="control-group">
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <label class="control-label">Slice Position</label>
+                            <span class="slider-value" id="sliceValue">78</span>
+                        </div>
+                        <input type="range" id="sliceSlider" min="0" max="154" value="78">
                     </div>
-                    <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.7">
+                </div>
+
+                <!-- Window/Level -->
+                <div class="control-group">
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <label class="control-label">Window Width</label>
+                            <span class="slider-value" id="windowValue">400</span>
+                        </div>
+                        <input type="range" id="windowSlider" min="50" max="1000" value="400">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <label class="control-label">Window Level</label>
+                            <span class="slider-value" id="levelValue">200</span>
+                        </div>
+                        <input type="range" id="levelSlider" min="0" max="500" value="200">
+                    </div>
+                </div>
+
+                <!-- Segmentation Overlay -->
+                <div class="control-group">
+                    <label class="control-label">Segmentation Overlay</label>
+                    <div class="slider-container">
+                        <div class="slider-header">
+                            <span style="font-size: 0.8rem; color: var(--text-secondary)">Opacity</span>
+                            <span class="slider-value" id="opacityValue">0.6</span>
+                        </div>
+                        <input type="range" id="opacitySlider" min="0" max="100" value="60">
+                    </div>
+                </div>
+
+                <!-- Region Toggles -->
+                <div class="control-group">
+                    <label class="control-label">Tumor Regions</label>
+                    <div class="toggle-group">
+                        <div class="toggle-item">
+                            <div class="toggle-item-label">
+                                <span class="color-indicator" style="background: var(--tumor-necrotic)"></span>
+                                Necrotic Core (NCR)
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggleNCR" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item">
+                            <div class="toggle-item-label">
+                                <span class="color-indicator" style="background: var(--tumor-edema)"></span>
+                                Peritumoral Edema (ED)
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggleED" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-item">
+                            <div class="toggle-item-label">
+                                <span class="color-indicator" style="background: var(--tumor-enhancing)"></span>
+                                Enhancing Tumor (ET)
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="toggleET" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="runAnalysis">
+                        <span>▶</span> Analyze
+                    </button>
+                    <button class="btn btn-secondary" id="resetView">
+                        <span>↺</span> Reset
+                    </button>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="exportBtn">
+                        <span>💾</span> Export
+                    </button>
+                    <button class="btn btn-secondary" id="screenshotBtn">
+                        <span>📷</span> Capture
+                    </button>
                 </div>
             </div>
+        </aside>
 
-            <div class="panel viz-area">
-                <div class="empty-state" id="emptyState">
-                    <div class="empty-icon">🔬</div>
-                    <h3>Ready for Segmentation</h3>
-                    <p>Upload a BraTS2020 NIfTI file (.nii or .nii.gz)</p>
-                    <p style="margin-top: 1rem; font-size: 0.9rem;">
-                        Processing happens entirely in your browser using real algorithms
-                    </p>
+        <!-- Center Panel - Viewer -->
+        <section class="panel viewer-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">MRI Viewer</h2>
+                <div class="viewer-tabs">
+                    <button class="viewer-tab active" data-view="quad">Quad View</button>
+                    <button class="viewer-tab" data-view="t1">T1</button>
+                    <button class="viewer-tab" data-view="t1ce">T1-CE</button>
+                    <button class="viewer-tab" data-view="t2">T2</button>
+                    <button class="viewer-tab" data-view="flair">FLAIR</button>
+                </div>
+            </div>
+            <div class="viewer-container" id="viewerContainer">
+                <div class="mri-view" id="view-t1">
+                    <canvas id="canvas-t1" width="240" height="240"></canvas>
+                    <span class="mri-label">T1</span>
+                    <div class="mri-info">
+                        <div id="t1-coords">X: -- Y: --</div>
+                        <div id="t1-intensity">I: --</div>
+                    </div>
+                    <div class="crosshair-h" id="crosshair-t1-h"></div>
+                    <div class="crosshair-v" id="crosshair-t1-v"></div>
+                </div>
+                <div class="mri-view" id="view-t1ce">
+                    <canvas id="canvas-t1ce" width="240" height="240"></canvas>
+                    <span class="mri-label">T1-CE</span>
+                    <div class="mri-info">
+                        <div id="t1ce-coords">X: -- Y: --</div>
+                        <div id="t1ce-intensity">I: --</div>
+                    </div>
+                    <div class="crosshair-h" id="crosshair-t1ce-h"></div>
+                    <div class="crosshair-v" id="crosshair-t1ce-v"></div>
+                </div>
+                <div class="mri-view" id="view-t2">
+                    <canvas id="canvas-t2" width="240" height="240"></canvas>
+                    <span class="mri-label">T2</span>
+                    <div class="mri-info">
+                        <div id="t2-coords">X: -- Y: --</div>
+                        <div id="t2-intensity">I: --</div>
+                    </div>
+                    <div class="crosshair-h" id="crosshair-t2-h"></div>
+                    <div class="crosshair-v" id="crosshair-t2-v"></div>
+                </div>
+                <div class="mri-view" id="view-flair">
+                    <canvas id="canvas-flair" width="240" height="240"></canvas>
+                    <span class="mri-label">FLAIR</span>
+                    <div class="mri-info">
+                        <div id="flair-coords">X: -- Y: --</div>
+                        <div id="flair-intensity">I: --</div>
+                    </div>
+                    <div class="crosshair-h" id="crosshair-flair-h"></div>
+                    <div class="crosshair-v" id="crosshair-flair-v"></div>
+                </div>
+            </div>
+            <div class="viewer-toolbar">
+                <div class="toolbar-group">
+                    <button class="toolbar-btn active" id="toolPan" title="Pan (P)">🖐</button>
+                    <button class="toolbar-btn" id="toolZoom" title="Zoom (Z)">🔍</button>
+                    <button class="toolbar-btn" id="toolMeasure" title="Measure (M)">📏</button>
+                    <button class="toolbar-btn" id="toolCrosshair" title="Crosshair (C)">➕</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="prevSlice" title="Previous Slice (←)">◀</button>
+                    <button class="toolbar-btn" id="playSlices" title="Play (Space)">▶</button>
+                    <button class="toolbar-btn" id="nextSlice" title="Next Slice (→)">▶</button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="toggleSync" title="Sync Views">🔗</button>
+                    <button class="toolbar-btn" id="toggleGrid" title="Toggle Grid">⊞</button>
+                    <button class="toolbar-btn" id="fullscreen" title="Fullscreen (F)">⛶</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Panel - Metrics -->
+        <aside class="panel metrics-panel">
+            <div class="panel-header">
+                <h2 class="panel-title">Metrics & Analysis</h2>
+            </div>
+            <div class="panel-content">
+                <!-- Overall Accuracy -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Overall Dice Score</h3>
+                    <div class="progress-ring-container">
+                        <div class="progress-ring">
+                            <svg width="120" height="120">
+                                <defs>
+                                    <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="var(--accent-cyan)" />
+                                        <stop offset="100%" stop-color="var(--accent-magenta)" />
+                                    </linearGradient>
+                                </defs>
+                                <circle class="bg" cx="60" cy="60" r="52"/>
+                                <circle class="progress" cx="60" cy="60" r="52" 
+                                    stroke-dasharray="326.7" 
+                                    stroke-dashoffset="65" 
+                                    id="overallProgress"/>
+                            </svg>
+                            <div class="progress-text">
+                                <div class="progress-value" id="overallDice">0.859</div>
+                                <div class="progress-label">Average</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="loading" id="loadingState">
-                    <div class="spinner"></div>
-                    <div>Processing MRI scan...</div>
-                    <div style="font-family: 'JetBrains Mono', monospace; color: var(--primary); margin-top: 0.5rem;">
-                        Running intensity-based segmentation
+                <!-- Region Dice Scores -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Regional Dice Scores</h3>
+                    <div class="dice-scores">
+                        <div class="dice-item">
+                            <span class="dice-region">
+                                <span class="color-indicator" style="background: var(--tumor-enhancing)"></span>
+                                Whole Tumor (WT)
+                            </span>
+                            <span class="dice-score score-excellent" id="diceWT">0.912</span>
+                        </div>
+                        <div class="dice-item">
+                            <span class="dice-region">
+                                <span class="color-indicator" style="background: var(--tumor-core)"></span>
+                                Tumor Core (TC)
+                            </span>
+                            <span class="dice-score score-good" id="diceTC">0.867</span>
+                        </div>
+                        <div class="dice-item">
+                            <span class="dice-region">
+                                <span class="color-indicator" style="background: var(--tumor-necrotic)"></span>
+                                Enhancing Tumor (ET)
+                            </span>
+                            <span class="dice-score score-good" id="diceET">0.798</span>
+                        </div>
                     </div>
                 </div>
 
-                <div class="slice-grid" id="sliceGrid" style="display: none;">
-                    <div class="slice-box">
-                        <div class="slice-title">Original MRI</div>
-                        <canvas id="mriCanvas"></canvas>
+                <!-- Tumor Composition -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Tumor Composition</h3>
+                    <div class="composition-chart">
+                        <div class="composition-bar">
+                            <div class="bar-header">
+                                <span class="bar-label">
+                                    <span class="color-indicator" style="background: var(--tumor-necrotic)"></span>
+                                    Necrotic Core
+                                </span>
+                                <span class="bar-value" id="ncrVolume">12.4%</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill" style="background: var(--tumor-necrotic); width: 12.4%"></div>
+                            </div>
+                        </div>
+                        <div class="composition-bar">
+                            <div class="bar-header">
+                                <span class="bar-label">
+                                    <span class="color-indicator" style="background: var(--tumor-edema)"></span>
+                                    Edema
+                                </span>
+                                <span class="bar-value" id="edVolume">58.2%</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill" style="background: var(--tumor-edema); width: 58.2%"></div>
+                            </div>
+                        </div>
+                        <div class="composition-bar">
+                            <div class="bar-header">
+                                <span class="bar-label">
+                                    <span class="color-indicator" style="background: var(--tumor-enhancing)"></span>
+                                    Enhancing Tumor
+                                </span>
+                                <span class="bar-value" id="etVolume">29.4%</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill" style="background: var(--tumor-enhancing); width: 29.4%"></div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="slice-box">
-                        <div class="slice-title">Segmentation</div>
-                        <canvas id="segCanvas"></canvas>
+                </div>
+
+                <!-- Volume Metrics -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Volume Analysis</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value" id="totalVolume">45.2</div>
+                            <div class="metric-label">Total Volume (cm³)</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="surfaceArea">128.7</div>
+                            <div class="metric-label">Surface Area (cm²)</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="sphericity">0.72</div>
+                            <div class="metric-label">Sphericity Index</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="hausdorff">3.45</div>
+                            <div class="metric-label">Hausdorff (mm)</div>
+                        </div>
                     </div>
-                    <div class="slice-box">
-                        <div class="slice-title">Overlay</div>
-                        <canvas id="overlayCanvas"></canvas>
+                </div>
+
+                <!-- Additional Metrics -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Additional Metrics</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value" id="sensitivity">0.894</div>
+                            <div class="metric-label">Sensitivity</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="specificity">0.987</div>
+                            <div class="metric-label">Specificity</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="precision">0.876</div>
+                            <div class="metric-label">Precision</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="iou">0.751</div>
+                            <div class="metric-label">IoU / Jaccard</div>
+                        </div>
                     </div>
-                    <div class="slice-box">
-                        <div class="slice-title">Tumor Only</div>
-                        <canvas id="tumorCanvas"></canvas>
+                </div>
+
+                <!-- Activity Log -->
+                <div class="metrics-section">
+                    <h3 class="section-title">Activity Log</h3>
+                    <div class="history-log" id="activityLog">
+                        <div class="log-entry">
+                            <span class="log-time">--:--:--</span>
+                            <span class="log-action">System</span>
+                            <span class="log-value">Ready</span>
+                        </div>
                     </div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText">Loading MRI Data...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loadingProgress"></div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Keyboard Shortcuts -->
+    <div class="shortcuts-hint">
+        <kbd>←</kbd><kbd>→</kbd> Slice <kbd>Space</kbd> Play <kbd>R</kbd> Reset <kbd>F</kbd> Fullscreen
+    </div>
+
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title">Export Options</h3>
+                <button class="modal-close" id="closeExportModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="control-group">
+                    <label class="control-label">Export Format</label>
+                    <select class="custom-select" id="exportFormat">
+                        <option value="json">JSON (Metrics Only)</option>
+                        <option value="csv">CSV (Tabular Data)</option>
+                        <option value="png">PNG (Current View)</option>
+                        <option value="pdf">PDF (Full Report)</option>
+                    </select>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="confirmExport">Export</button>
+                    <button class="btn btn-secondary" id="cancelExport">Cancel</button>
                 </div>
             </div>
         </div>
