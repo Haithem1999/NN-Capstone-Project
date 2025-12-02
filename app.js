@@ -241,12 +241,460 @@ function setupEventListeners() {
 // FILE HANDLING
 // ============================================================================
 
+let uploadedFile = null;
+let uploadedNiftiData = null;
+
 function handleFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
+        uploadedFile = file;
         document.getElementById('analyzeBtn').disabled = false;
         showNotification(`File loaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+        
+        // Check file type and start parsing
+        const fileName = file.name.toLowerCase();
+        if (fileName.endsWith('.nii') || fileName.endsWith('.nii.gz')) {
+            parseNiftiFile(file);
+        } else if (file.type.startsWith('image/')) {
+            parseImageFile(file);
+        }
     }
+}
+
+/**
+ * Parse a standard image file (PNG, JPG, etc.)
+ */
+async function parseImageFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                // Create a canvas to extract pixel data
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                
+                // Convert to grayscale and store as single slice
+                const width = img.width;
+                const height = img.height;
+                const depth = 1;
+                
+                mriData = new Array(depth);
+                segmentationMask = new Array(depth);
+                
+                mriData[0] = new Uint8Array(width * height);
+                segmentationMask[0] = new Uint8Array(width * height);
+                
+                for (let i = 0; i < width * height; i++) {
+                    const r = imageData.data[i * 4];
+                    const g = imageData.data[i * 4 + 1];
+                    const b = imageData.data[i * 4 + 2];
+                    // Convert to grayscale
+                    mriData[0][i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+                }
+                
+                uploadedNiftiData = {
+                    width: width,
+                    height: height,
+                    depth: depth,
+                    data: mriData
+                };
+                
+                showNotification(`✅ Image parsed: ${width}x${height}`);
+                resolve();
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Parse NIfTI file format (.nii or .nii.gz)
+ */
+async function parseNiftiFile(file) {
+    showNotification('📂 Parsing NIfTI file...');
+    
+    try {
+        let arrayBuffer = await file.arrayBuffer();
+        
+        // Check if gzipped
+        const fileName = file.name.toLowerCase();
+        if (fileName.endsWith('.gz')) {
+            showNotification('🗜️ Decompressing gzip...');
+            arrayBuffer = await decompressGzip(arrayBuffer);
+        }
+        
+        // Parse NIfTI header and data
+        const nifti = parseNiftiBuffer(arrayBuffer);
+        
+        if (nifti) {
+            uploadedNiftiData = nifti;
+            showNotification(`✅ NIfTI parsed: ${nifti.width}x${nifti.height}x${nifti.depth}`);
+            
+            // Update slider range based on actual depth
+            const sliceSlider = document.getElementById('sliceSlider');
+            sliceSlider.max = nifti.depth - 1;
+            sliceSlider.value = Math.floor(nifti.depth / 2);
+            currentSlice = Math.floor(nifti.depth / 2);
+            document.getElementById('sliceValue').textContent = currentSlice;
+        }
+    } catch (error) {
+        console.error('Error parsing NIfTI:', error);
+        showNotification('❌ Error parsing NIfTI file: ' + error.message);
+    }
+}
+
+/**
+ * Decompress gzip data using DecompressionStream API or pako fallback
+ */
+async function decompressGzip(arrayBuffer) {
+    // Try native DecompressionStream first (modern browsers)
+    if (typeof DecompressionStream !== 'undefined') {
+        try {
+            const ds = new DecompressionStream('gzip');
+            const stream = new Response(arrayBuffer).body.pipeThrough(ds);
+            const decompressed = await new Response(stream).arrayBuffer();
+            return decompressed;
+        } catch (e) {
+            console.warn('DecompressionStream failed, trying manual decompression');
+        }
+    }
+    
+    // Manual gzip decompression (simplified implementation)
+    return manualGunzip(arrayBuffer);
+}
+
+/**
+ * Manual gzip decompression using pako-style inflate
+ * This is a simplified implementation - for production, use pako library
+ */
+async function manualGunzip(arrayBuffer) {
+    const data = new Uint8Array(arrayBuffer);
+    
+    // Check gzip magic number
+    if (data[0] !== 0x1f || data[1] !== 0x8b) {
+        throw new Error('Not a valid gzip file');
+    }
+    
+    // Try to dynamically load pako if available
+    if (typeof pako !== 'undefined') {
+        return pako.ungzip(data).buffer;
+    }
+    
+    // Load pako dynamically
+    try {
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
+        if (typeof pako !== 'undefined') {
+            return pako.ungzip(data).buffer;
+        }
+    } catch (e) {
+        console.warn('Could not load pako library');
+    }
+    
+    throw new Error('Gzip decompression not available. Please use uncompressed .nii files or a modern browser.');
+}
+
+/**
+ * Load external script dynamically
+ */
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
+/**
+ * Parse NIfTI-1 format buffer
+ * Reference: https://nifti.nimh.nih.gov/nifti-1/
+ */
+function parseNiftiBuffer(arrayBuffer) {
+    const view = new DataView(arrayBuffer);
+    
+    // Determine endianness by checking sizeof_hdr (should be 348 for NIfTI-1)
+    let littleEndian = true;
+    let sizeof_hdr = view.getInt32(0, true);
+    
+    if (sizeof_hdr !== 348) {
+        sizeof_hdr = view.getInt32(0, false);
+        if (sizeof_hdr === 348) {
+            littleEndian = false;
+        } else {
+            // Could be NIfTI-2 (sizeof_hdr = 540)
+            sizeof_hdr = view.getInt32(0, true);
+            if (sizeof_hdr === 540) {
+                return parseNifti2Buffer(arrayBuffer, true);
+            }
+            sizeof_hdr = view.getInt32(0, false);
+            if (sizeof_hdr === 540) {
+                return parseNifti2Buffer(arrayBuffer, false);
+            }
+            throw new Error('Invalid NIfTI file: unrecognized header size');
+        }
+    }
+    
+    // Read dimensions
+    const dim = [];
+    for (let i = 0; i < 8; i++) {
+        dim.push(view.getInt16(40 + i * 2, littleEndian));
+    }
+    
+    const ndim = dim[0];
+    const width = dim[1] || 1;
+    const height = dim[2] || 1;
+    const depth = dim[3] || 1;
+    const timepoints = dim[4] || 1;
+    
+    // Read datatype
+    const datatype = view.getInt16(70, littleEndian);
+    const bitpix = view.getInt16(72, littleEndian);
+    
+    // Read voxel dimensions (pixdim)
+    const pixdim = [];
+    for (let i = 0; i < 8; i++) {
+        pixdim.push(view.getFloat32(76 + i * 4, littleEndian));
+    }
+    
+    // Read data offset
+    const vox_offset = view.getFloat32(108, littleEndian);
+    
+    // Read scaling factors
+    const scl_slope = view.getFloat32(112, littleEndian);
+    const scl_inter = view.getFloat32(116, littleEndian);
+    
+    console.log('NIfTI-1 Header:', {
+        dimensions: `${width}x${height}x${depth}x${timepoints}`,
+        datatype: datatype,
+        bitpix: bitpix,
+        vox_offset: vox_offset,
+        pixdim: pixdim.slice(1, 4),
+        scl_slope: scl_slope,
+        scl_inter: scl_inter
+    });
+    
+    // Extract image data
+    const dataStart = Math.max(vox_offset, 352); // NIfTI-1 header is at least 352 bytes
+    const imageData = extractNiftiImageData(
+        arrayBuffer, 
+        dataStart, 
+        width, height, depth, timepoints,
+        datatype, 
+        littleEndian,
+        scl_slope,
+        scl_inter
+    );
+    
+    // Convert to our internal format
+    mriData = new Array(depth);
+    segmentationMask = new Array(depth);
+    
+    for (let z = 0; z < depth; z++) {
+        mriData[z] = new Uint8Array(width * height);
+        segmentationMask[z] = new Uint8Array(width * height);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const srcIdx = z * width * height + y * width + x;
+                const dstIdx = y * width + x;
+                mriData[z][dstIdx] = imageData[srcIdx];
+            }
+        }
+    }
+    
+    return {
+        width: width,
+        height: height,
+        depth: depth,
+        timepoints: timepoints,
+        pixdim: pixdim,
+        datatype: datatype,
+        data: mriData
+    };
+}
+
+/**
+ * Parse NIfTI-2 format buffer
+ */
+function parseNifti2Buffer(arrayBuffer, littleEndian) {
+    const view = new DataView(arrayBuffer);
+    
+    // Read dimensions (64-bit integers in NIfTI-2)
+    const dim = [];
+    for (let i = 0; i < 8; i++) {
+        // Read as two 32-bit integers and combine (simplified for typical sizes)
+        const low = view.getInt32(16 + i * 8, littleEndian);
+        dim.push(low);
+    }
+    
+    const width = dim[1] || 1;
+    const height = dim[2] || 1;
+    const depth = dim[3] || 1;
+    const timepoints = dim[4] || 1;
+    
+    // Read datatype
+    const datatype = view.getInt16(12, littleEndian);
+    const bitpix = view.getInt16(14, littleEndian);
+    
+    // Read pixdim
+    const pixdim = [];
+    for (let i = 0; i < 8; i++) {
+        pixdim.push(view.getFloat64(104 + i * 8, littleEndian));
+    }
+    
+    // Read vox_offset (64-bit)
+    const vox_offset = view.getFloat64(168, littleEndian);
+    
+    // Read scaling
+    const scl_slope = view.getFloat64(176, littleEndian);
+    const scl_inter = view.getFloat64(184, littleEndian);
+    
+    console.log('NIfTI-2 Header:', {
+        dimensions: `${width}x${height}x${depth}x${timepoints}`,
+        datatype: datatype,
+        bitpix: bitpix,
+        vox_offset: vox_offset
+    });
+    
+    const dataStart = Math.max(vox_offset, 544);
+    const imageData = extractNiftiImageData(
+        arrayBuffer,
+        dataStart,
+        width, height, depth, timepoints,
+        datatype,
+        littleEndian,
+        scl_slope,
+        scl_inter
+    );
+    
+    mriData = new Array(depth);
+    segmentationMask = new Array(depth);
+    
+    for (let z = 0; z < depth; z++) {
+        mriData[z] = new Uint8Array(width * height);
+        segmentationMask[z] = new Uint8Array(width * height);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const srcIdx = z * width * height + y * width + x;
+                const dstIdx = y * width + x;
+                mriData[z][dstIdx] = imageData[srcIdx];
+            }
+        }
+    }
+    
+    return {
+        width: width,
+        height: height,
+        depth: depth,
+        timepoints: timepoints,
+        pixdim: pixdim,
+        datatype: datatype,
+        data: mriData
+    };
+}
+
+/**
+ * Extract and normalize NIfTI image data based on datatype
+ */
+function extractNiftiImageData(arrayBuffer, offset, width, height, depth, timepoints, datatype, littleEndian, slope, inter) {
+    const view = new DataView(arrayBuffer);
+    const numVoxels = width * height * depth;
+    const rawData = new Float32Array(numVoxels);
+    
+    // Use slope=1, inter=0 if not set
+    const useSlope = (slope && slope !== 0) ? slope : 1;
+    const useInter = inter || 0;
+    
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+    
+    // Read data based on datatype
+    // NIfTI datatype codes: https://nifti.nimh.nih.gov/nifti-1/documentation/nifti1fields/nifti1fields_pages/datatype.html
+    for (let i = 0; i < numVoxels; i++) {
+        let value = 0;
+        
+        switch (datatype) {
+            case 2: // UINT8
+                value = view.getUint8(offset + i);
+                break;
+            case 4: // INT16
+                value = view.getInt16(offset + i * 2, littleEndian);
+                break;
+            case 8: // INT32
+                value = view.getInt32(offset + i * 4, littleEndian);
+                break;
+            case 16: // FLOAT32
+                value = view.getFloat32(offset + i * 4, littleEndian);
+                break;
+            case 32: // COMPLEX64 (read real part only)
+                value = view.getFloat32(offset + i * 8, littleEndian);
+                break;
+            case 64: // FLOAT64
+                value = view.getFloat64(offset + i * 8, littleEndian);
+                break;
+            case 128: // RGB24
+                const r = view.getUint8(offset + i * 3);
+                const g = view.getUint8(offset + i * 3 + 1);
+                const b = view.getUint8(offset + i * 3 + 2);
+                value = 0.299 * r + 0.587 * g + 0.114 * b;
+                break;
+            case 256: // INT8
+                value = view.getInt8(offset + i);
+                break;
+            case 512: // UINT16
+                value = view.getUint16(offset + i * 2, littleEndian);
+                break;
+            case 768: // UINT32
+                value = view.getUint32(offset + i * 4, littleEndian);
+                break;
+            default:
+                // Try to read as float32 by default
+                if (offset + i * 4 + 4 <= arrayBuffer.byteLength) {
+                    value = view.getFloat32(offset + i * 4, littleEndian);
+                } else {
+                    value = 0;
+                }
+        }
+        
+        // Apply scaling
+        value = value * useSlope + useInter;
+        
+        // Handle NaN/Inf
+        if (!isFinite(value)) value = 0;
+        
+        rawData[i] = value;
+        if (value < minVal) minVal = value;
+        if (value > maxVal) maxVal = value;
+    }
+    
+    // Normalize to 0-255 range
+    const normalizedData = new Uint8Array(numVoxels);
+    const range = maxVal - minVal;
+    
+    if (range > 0) {
+        for (let i = 0; i < numVoxels; i++) {
+            normalizedData[i] = Math.round(((rawData[i] - minVal) / range) * 255);
+        }
+    }
+    
+    console.log(`Image data range: ${minVal.toFixed(2)} to ${maxVal.toFixed(2)}`);
+    
+    return normalizedData;
 }
 
 // ============================================================================
@@ -653,14 +1101,34 @@ function addIrregularFeatures() {
 // ============================================================================
 
 /**
- * Run 3D U-Net segmentation
+ * Run 3D U-Net segmentation on uploaded data
  * In production, this would use actual trained weights
  */
 async function runSegmentation() {
+    // Check if we have uploaded data
+    if (!uploadedNiftiData && !uploadedFile) {
+        showNotification('❌ Please upload an MRI file first');
+        return;
+    }
+    
     showLoading();
     const startTime = performance.now();
     
     try {
+        // Wait for file parsing if not done yet
+        if (!uploadedNiftiData && uploadedFile) {
+            const fileName = uploadedFile.name.toLowerCase();
+            if (fileName.endsWith('.nii') || fileName.endsWith('.nii.gz')) {
+                await parseNiftiFile(uploadedFile);
+            } else if (uploadedFile.type.startsWith('image/')) {
+                await parseImageFile(uploadedFile);
+            }
+        }
+        
+        if (!mriData || mriData.length === 0) {
+            throw new Error('Failed to parse MRI data');
+        }
+        
         // Simulate processing steps
         await updateProgressWithSteps([
             { progress: 20, message: 'Preprocessing MRI data...' },
@@ -670,12 +1138,10 @@ async function runSegmentation() {
             { progress: 100, message: 'Complete!' }
         ]);
         
-        // Generate synthetic data (in production, process uploaded file)
-        generateSyntheticMRIData();
-        
-        // In a real implementation with trained weights:
-        // const predictions = await runModelInference(mriData);
-        // segmentationMask = postprocessPredictions(predictions);
+        // Run actual segmentation on the uploaded data
+        // In production with trained weights: const predictions = await runModelInference(mriData);
+        // For now, run inference simulation that analyzes actual image intensities
+        await runSegmentationInference();
         
         const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
         
@@ -697,6 +1163,146 @@ async function runSegmentation() {
         hideLoading();
         showNotification('❌ Error during segmentation: ' + error.message);
     }
+}
+
+/**
+ * Run segmentation inference on actual MRI data
+ * This analyzes the real uploaded image intensities
+ * In production, this would use trained model weights
+ */
+async function runSegmentationInference() {
+    if (!mriData) return;
+    
+    const depth = mriData.length;
+    const width = mriData[0].length > 0 ? Math.sqrt(mriData[0].length) : 240;
+    const height = width;
+    
+    // Initialize segmentation mask
+    segmentationMask = new Array(depth);
+    
+    // Analyze image to find intensity statistics
+    let totalSum = 0;
+    let totalCount = 0;
+    let maxIntensity = 0;
+    
+    for (let z = 0; z < depth; z++) {
+        for (let i = 0; i < mriData[z].length; i++) {
+            const val = mriData[z][i];
+            if (val > 10) { // Ignore background
+                totalSum += val;
+                totalCount++;
+            }
+            if (val > maxIntensity) maxIntensity = val;
+        }
+    }
+    
+    const meanIntensity = totalCount > 0 ? totalSum / totalCount : 128;
+    
+    // Calculate intensity thresholds based on actual image statistics
+    // These thresholds should be tuned based on real training data
+    const bgThreshold = meanIntensity * 0.2;
+    const edemaLow = meanIntensity * 0.9;
+    const edemaHigh = meanIntensity * 1.4;
+    const coreLow = meanIntensity * 0.3;
+    const coreHigh = meanIntensity * 0.7;
+    const enhancingThreshold = meanIntensity * 1.5;
+    
+    console.log('Image statistics:', {
+        meanIntensity,
+        maxIntensity,
+        bgThreshold,
+        edemaRange: [edemaLow, edemaHigh],
+        coreRange: [coreLow, coreHigh],
+        enhancingThreshold
+    });
+    
+    // Initialize noise for organic boundaries (used for refinement)
+    const noise = new OrganicNoise(42);
+    
+    // Process each slice
+    for (let z = 0; z < depth; z++) {
+        segmentationMask[z] = new Uint8Array(mriData[z].length);
+        
+        // First pass: intensity-based classification
+        for (let i = 0; i < mriData[z].length; i++) {
+            const intensity = mriData[z][i];
+            
+            // Skip background
+            if (intensity < bgThreshold) {
+                segmentationMask[z][i] = 0;
+                continue;
+            }
+            
+            // Simple intensity-based classification
+            // In production, this would be replaced by actual U-Net inference
+            if (intensity > enhancingThreshold) {
+                // High intensity - potential enhancing tumor
+                segmentationMask[z][i] = 4;
+            } else if (intensity >= edemaLow && intensity <= edemaHigh) {
+                // Mid-high intensity - potential edema
+                segmentationMask[z][i] = 2;
+            } else if (intensity >= coreLow && intensity <= coreHigh) {
+                // Low intensity in brain region - potential necrotic core
+                segmentationMask[z][i] = 1;
+            } else {
+                // Normal brain tissue
+                segmentationMask[z][i] = 0;
+            }
+        }
+        
+        // Second pass: spatial coherence (simple morphological cleanup)
+        const tempMask = new Uint8Array(segmentationMask[z]);
+        const w = Math.round(Math.sqrt(mriData[z].length));
+        
+        for (let y = 2; y < w - 2; y++) {
+            for (let x = 2; x < w - 2; x++) {
+                const idx = y * w + x;
+                const label = tempMask[idx];
+                
+                if (label === 0) continue;
+                
+                // Count neighbors with same label
+                let sameCount = 0;
+                let totalNeighbors = 0;
+                
+                for (let dy = -2; dy <= 2; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nidx = (y + dy) * w + (x + dx);
+                        if (nidx >= 0 && nidx < tempMask.length) {
+                            totalNeighbors++;
+                            if (tempMask[nidx] === label) sameCount++;
+                        }
+                    }
+                }
+                
+                // Remove isolated pixels (noise reduction)
+                if (sameCount < totalNeighbors * 0.2) {
+                    segmentationMask[z][idx] = 0;
+                }
+            }
+        }
+    }
+    
+    // Third pass: 3D consistency across slices
+    for (let z = 1; z < depth - 1; z++) {
+        const w = Math.round(Math.sqrt(mriData[z].length));
+        
+        for (let i = 0; i < mriData[z].length; i++) {
+            const label = segmentationMask[z][i];
+            if (label === 0) continue;
+            
+            const prevLabel = segmentationMask[z - 1][i];
+            const nextLabel = segmentationMask[z + 1][i];
+            
+            // If this voxel is labeled but both neighbors aren't, likely noise
+            if (prevLabel === 0 && nextLabel === 0) {
+                segmentationMask[z][i] = 0;
+            }
+        }
+    }
+    
+    console.log('✅ Segmentation inference complete on actual MRI data');
 }
 
 async function loadDemoData() {
@@ -810,6 +1416,21 @@ function updateTumorVolumes() {
 // ============================================================================
 
 /**
+ * Get image dimensions from uploaded data
+ */
+function getImageDimensions() {
+    if (uploadedNiftiData) {
+        return {
+            width: uploadedNiftiData.width,
+            height: uploadedNiftiData.height,
+            depth: uploadedNiftiData.depth
+        };
+    }
+    // Default dimensions
+    return { width: 240, height: 240, depth: 155 };
+}
+
+/**
  * Update all slice views
  */
 function updateSliceViews() {
@@ -831,16 +1452,25 @@ function renderAxialSlice() {
     const canvas = document.getElementById('axialCanvas');
     const ctx = canvas.getContext('2d');
     
-    const width = 240;
-    const height = 240;
+    const dims = getImageDimensions();
+    const width = dims.width;
+    const height = dims.height;
+    const depth = dims.depth;
+    
+    // Clamp current slice to valid range
+    if (currentSlice >= depth) currentSlice = depth - 1;
+    if (currentSlice < 0) currentSlice = 0;
+    
     canvas.width = width;
     canvas.height = height;
     
     const mriSlice = mriData[currentSlice];
     const maskSlice = segmentationMask[currentSlice];
     
+    if (!mriSlice || !maskSlice) return;
+    
     renderSliceToCanvas(ctx, mriSlice, maskSlice, width, height);
-    document.getElementById('axialInfo').textContent = `Slice: ${currentSlice}/154`;
+    document.getElementById('axialInfo').textContent = `Slice: ${currentSlice}/${depth - 1}`;
 }
 
 /**
@@ -850,9 +1480,12 @@ function renderCoronalSlice() {
     const canvas = document.getElementById('coronalCanvas');
     const ctx = canvas.getContext('2d');
     
-    const width = 240;
-    const depth = 155;
-    const y = 120;
+    const dims = getImageDimensions();
+    const width = dims.width;
+    const height = dims.height;
+    const depth = dims.depth;
+    
+    const y = Math.floor(height / 2);
     
     canvas.width = width;
     canvas.height = depth;
@@ -865,13 +1498,15 @@ function renderCoronalSlice() {
         for (let x = 0; x < width; x++) {
             const srcIdx = y * width + x;
             const dstIdx = z * width + x;
-            mriSlice[dstIdx] = mriData[z][srcIdx];
-            maskSlice[dstIdx] = segmentationMask[z][srcIdx];
+            if (mriData[z] && mriData[z][srcIdx] !== undefined) {
+                mriSlice[dstIdx] = mriData[z][srcIdx];
+                maskSlice[dstIdx] = segmentationMask[z] ? segmentationMask[z][srcIdx] : 0;
+            }
         }
     }
     
     renderSliceToCanvas(ctx, mriSlice, maskSlice, width, depth);
-    document.getElementById('coronalInfo').textContent = `Slice: ${y}/240`;
+    document.getElementById('coronalInfo').textContent = `Slice: ${y}/${height - 1}`;
 }
 
 /**
@@ -881,10 +1516,12 @@ function renderSagittalSlice() {
     const canvas = document.getElementById('sagittalCanvas');
     const ctx = canvas.getContext('2d');
     
-    const width = 240;
-    const height = 240;
-    const depth = 155;
-    const x = 120;
+    const dims = getImageDimensions();
+    const width = dims.width;
+    const height = dims.height;
+    const depth = dims.depth;
+    
+    const x = Math.floor(width / 2);
     
     canvas.width = height;
     canvas.height = depth;
@@ -897,13 +1534,15 @@ function renderSagittalSlice() {
         for (let y = 0; y < height; y++) {
             const srcIdx = y * width + x;
             const dstIdx = z * height + y;
-            mriSlice[dstIdx] = mriData[z][srcIdx];
-            maskSlice[dstIdx] = segmentationMask[z][srcIdx];
+            if (mriData[z] && mriData[z][srcIdx] !== undefined) {
+                mriSlice[dstIdx] = mriData[z][srcIdx];
+                maskSlice[dstIdx] = segmentationMask[z] ? segmentationMask[z][srcIdx] : 0;
+            }
         }
     }
     
     renderSliceToCanvas(ctx, mriSlice, maskSlice, height, depth);
-    document.getElementById('sagittalInfo').textContent = `Slice: ${x}/240`;
+    document.getElementById('sagittalInfo').textContent = `Slice: ${x}/${width - 1}`;
 }
 
 /**
@@ -913,10 +1552,14 @@ function renderOverlaySlice() {
     const canvas = document.getElementById('overlayCanvas');
     const ctx = canvas.getContext('2d');
     
-    const width = 240;
-    const height = 240;
+    const dims = getImageDimensions();
+    const width = dims.width;
+    const height = dims.height;
+    
     canvas.width = width;
     canvas.height = height;
+    
+    if (!mriData[currentSlice] || !segmentationMask[currentSlice]) return;
     
     const mriSlice = mriData[currentSlice];
     const maskSlice = segmentationMask[currentSlice];
@@ -934,6 +1577,10 @@ function updateComparisonView() {
     document.getElementById('sliceViewer').style.display = 'grid';
     document.getElementById('emptyState').style.display = 'none';
     
+    const dims = getImageDimensions();
+    const width = dims.width;
+    const height = dims.height;
+    
     // Update titles for comparison mode
     document.getElementById('axialCanvas').parentElement.previousElementSibling.textContent = 'ORIGINAL MRI';
     document.getElementById('coronalCanvas').parentElement.previousElementSibling.textContent = 'SEGMENTATION MASK';
@@ -942,10 +1589,10 @@ function updateComparisonView() {
     
     const axialCanvas = document.getElementById('axialCanvas');
     const ctx1 = axialCanvas.getContext('2d');
-    const width = 240;
-    const height = 240;
     axialCanvas.width = width;
     axialCanvas.height = height;
+    
+    if (!mriData[currentSlice]) return;
     
     const mriSlice = mriData[currentSlice];
     const maskSlice = segmentationMask[currentSlice];
