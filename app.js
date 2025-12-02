@@ -345,6 +345,16 @@ async function parseNiftiFile(file) {
             sliceSlider.value = Math.floor(nifti.depth / 2);
             currentSlice = Math.floor(nifti.depth / 2);
             document.getElementById('sliceValue').textContent = currentSlice;
+            
+            // Initialize empty segmentation mask
+            segmentationMask = new Array(nifti.depth);
+            for (let z = 0; z < nifti.depth; z++) {
+                segmentationMask[z] = new Uint8Array(nifti.width * nifti.height);
+            }
+            
+            // Immediately display the uploaded image (before segmentation)
+            switchTab('slices');
+            updateSliceViews();
         }
     } catch (error) {
         console.error('Error parsing NIfTI:', error);
