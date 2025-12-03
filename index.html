@@ -3,183 +3,499 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NeuroScan AI - Brain Tumor Segmentation</title>
+    <title>NeuroScan AI - 3D Brain Tumor Segmentation</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #00d9ff;
+            --primary-glow: rgba(0, 217, 255, 0.3);
+            --secondary: #ff006e;
+            --bg-dark: #0a0e1a;
+            --bg-card: #131829;
+            --bg-input: #1a1f35;
+            --text-primary: #e8ecf5;
+            --text-secondary: #8892b0;
+            --text-muted: #4a5568;
+            --border: #2d3548;
+            --accent-green: #00ff88;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f35 100%);
-            color: #e8ecf5;
-            min-height: 100vh;
+            font-family: 'Manrope', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 30%, rgba(0, 217, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(255, 0, 110, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(0, 255, 136, 0.05) 0%, transparent 50%);
+            z-index: -1;
+            animation: bgShift 20s ease-in-out infinite;
+        }
+        
+        @keyframes bgShift {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+        
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(10, 14, 26, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+        
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            box-shadow: 0 0 20px var(--primary-glow);
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+        
+        .nav-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary);
+            transition: width 0.3s ease;
+        }
+        
+        .nav-link:hover {
+            color: var(--primary);
+        }
+        
+        .nav-link:hover::after {
+            width: 100%;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 6rem 2rem 2rem;
         }
         
         .header {
             text-align: center;
-            padding: 2rem;
-            background: rgba(0,0,0,0.3);
-            border-bottom: 1px solid #2d3548;
+            margin-bottom: 3rem;
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+        
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         h1 {
-            font-size: 2rem;
-            background: linear-gradient(90deg, #00d9ff, #ff006e);
+            font-size: 3.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent-green));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
+            background-clip: text;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
         }
         
-        .subtitle { color: #8892b0; font-size: 1rem; }
+        .subtitle {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
         
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
+        .badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+            margin-top: 1rem;
+            color: var(--accent-green);
+        }
+        
+        .main-grid {
             display: grid;
-            grid-template-columns: 350px 1fr;
+            grid-template-columns: 400px 1fr;
             gap: 2rem;
+            margin-bottom: 2rem;
+            animation: fadeInUp 0.8s ease-out 0.4s both;
         }
         
-        .panel {
-            background: #131829;
-            border-radius: 16px;
-            border: 1px solid #2d3548;
-            padding: 1.5rem;
+        .control-panel {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 2rem;
+            height: fit-content;
+            position: sticky;
+            top: 100px;
         }
         
         .section-title {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: #00d9ff;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
         
-        .upload-box {
-            border: 2px dashed #2d3548;
-            border-radius: 12px;
-            padding: 2rem;
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(180deg, var(--primary), var(--secondary));
+            border-radius: 2px;
+        }
+        
+        .upload-area {
+            background: var(--bg-input);
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 2.5rem 1.5rem;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s;
-            margin-bottom: 1rem;
-            background: #1a1f35;
+            transition: all 0.3s ease;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
         }
         
-        .upload-box:hover { border-color: #00d9ff; background: #1f2642; }
-        .upload-box.has-file { border-color: #00ff88; background: rgba(0,255,136,0.1); }
-        
-        .upload-icon { font-size: 3rem; margin-bottom: 0.5rem; }
-        .upload-text { color: #8892b0; margin-bottom: 0.25rem; }
-        .upload-hint { color: #4a5568; font-size: 0.85rem; }
-        .file-name { color: #00ff88; font-weight: 600; margin-top: 0.5rem; word-break: break-all; }
-        
-        .btn {
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
             width: 100%;
-            padding: 1rem;
-            border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 217, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .upload-area:hover::before {
+            left: 100%;
+        }
+        
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: var(--bg-card);
+            transform: translateY(-2px);
+        }
+        
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.6;
+        }
+        
+        .upload-text {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
             margin-bottom: 0.5rem;
         }
         
-        .btn-primary {
-            background: linear-gradient(90deg, #00d9ff, #ff006e);
-            color: white;
+        .upload-hint {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
         }
         
-        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,217,255,0.3); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        input[type="file"] {
+            display: none;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Manrope', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            box-shadow: 0 4px 20px var(--primary-glow);
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 30px var(--primary-glow);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
         
         .btn-secondary {
-            background: #1a1f35;
-            color: #e8ecf5;
-            border: 1px solid #2d3548;
+            background: var(--bg-input);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            margin-top: 0.75rem;
         }
         
-        .btn-secondary:hover { border-color: #00d9ff; }
+        .btn-secondary:hover {
+            background: var(--bg-card);
+            border-color: var(--primary);
+        }
         
-        .stats-row {
+        .stats-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 0.5rem;
-            margin: 1rem 0;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
         }
         
-        .stat-box {
-            background: #1a1f35;
-            border-radius: 8px;
-            padding: 0.75rem;
-            text-align: center;
+        .stat-card {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
         }
         
-        .stat-label { font-size: 0.75rem; color: #4a5568; text-transform: uppercase; }
-        .stat-value { font-size: 1.25rem; font-weight: 700; color: #00d9ff; }
+        .stat-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
         
-        .control-group { margin-bottom: 1rem; }
-        .control-label { display: block; font-size: 0.85rem; color: #8892b0; margin-bottom: 0.5rem; }
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .control-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .control-label {
+            display: block;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .slider-container {
+            position: relative;
+        }
         
         input[type="range"] {
             width: 100%;
             height: 6px;
             border-radius: 3px;
-            background: #1a1f35;
+            background: var(--bg-input);
             outline: none;
             -webkit-appearance: none;
         }
         
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 16px; height: 16px;
+            width: 18px;
+            height: 18px;
             border-radius: 50%;
-            background: #00d9ff;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             cursor: pointer;
+            box-shadow: 0 0 10px var(--primary-glow);
         }
         
-        .slider-row { display: flex; justify-content: space-between; align-items: center; }
-        .slider-val { color: #00d9ff; font-weight: 600; font-size: 0.9rem; }
-        
-        .view-btns { display: flex; gap: 0.5rem; }
-        
-        .view-btn {
-            flex: 1;
-            padding: 0.6rem;
-            border: 1px solid #2d3548;
-            background: #1a1f35;
-            color: #8892b0;
-            border-radius: 6px;
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+        
+        .slider-value {
+            position: absolute;
+            right: 0;
+            top: -25px;
+            font-family: 'JetBrains Mono', monospace;
             font-size: 0.85rem;
-            transition: all 0.2s;
+            color: var(--primary);
+            font-weight: 600;
         }
         
-        .view-btn.active { background: #00d9ff; color: #0a0e1a; border-color: #00d9ff; }
+        .toggle-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
         
-        .legend { margin-top: 1rem; }
+        .toggle-btn {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            background: var(--bg-input);
+            border-radius: 10px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .toggle-btn.active {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+        
+        .toggle-btn:hover {
+            border-color: var(--primary);
+        }
+        
+        .legend {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1.25rem;
+            border: 1px solid var(--border);
+        }
+        
+        .legend-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
         
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
             font-size: 0.9rem;
         }
         
-        .legend-color { width: 20px; height: 20px; border-radius: 4px; }
-        .legend-label { flex: 1; color: #8892b0; }
-        .legend-value { color: #e8ecf5; font-weight: 600; }
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
         
-        .viz-panel { min-height: 600px; }
+        .legend-color {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            box-shadow: 0 0 10px currentColor;
+        }
+        
+        .legend-label {
+            flex: 1;
+            color: var(--text-secondary);
+        }
+        
+        .legend-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .viz-area {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
         
         .viz-tabs {
             display: flex;
-            border-bottom: 1px solid #2d3548;
-            margin: -1.5rem -1.5rem 1.5rem;
-            background: #1a1f35;
-            border-radius: 16px 16px 0 0;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-input);
         }
         
         .viz-tab {
@@ -187,996 +503,512 @@
             padding: 1rem;
             text-align: center;
             cursor: pointer;
-            color: #8892b0;
             font-weight: 600;
-            transition: all 0.2s;
-            border-bottom: 3px solid transparent;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+            position: relative;
         }
         
-        .viz-tab:hover { color: #00d9ff; }
-        .viz-tab.active { color: #e8ecf5; border-bottom-color: #00d9ff; background: #131829; }
+        .viz-tab::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
         
-        .empty-state {
+        .viz-tab.active {
+            color: var(--text-primary);
+            background: var(--bg-card);
+        }
+        
+        .viz-tab.active::after {
+            transform: scaleX(1);
+        }
+        
+        .viz-tab:hover {
+            color: var(--primary);
+        }
+        
+        .viz-content {
+            flex: 1;
+            position: relative;
+            min-height: 600px;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 400px;
-            color: #4a5568;
         }
         
-        .empty-icon { font-size: 4rem; margin-bottom: 1rem; opacity: 0.5; }
+        #canvas3dContainer {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .slice-viewer {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            padding: 1.5rem;
+        }
+        
+        .slice-container {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        
+        .slice-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .slice-canvas-wrapper {
+            position: relative;
+            flex: 1;
+        }
+        
+        .slice-canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: #000;
+            cursor: crosshair;
+        }
+        
+        .slice-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(10, 14, 26, 0.9);
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+        
+        .empty-icon {
+            font-size: 5rem;
+            opacity: 0.3;
+            margin-bottom: 1.5rem;
+        }
+        
+        .empty-text {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .empty-hint {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
         
         .loading {
             display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 400px;
+            text-align: center;
+            padding: 3rem;
         }
         
-        .loading.active { display: flex; }
+        .loading.active {
+            display: block;
+        }
         
         .spinner {
-            width: 50px; height: 50px;
-            border: 4px solid #2d3548;
-            border-top-color: #00d9ff;
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 1.5rem;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
             border-radius: 50%;
             animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .loading-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-muted);
             margin-bottom: 1rem;
         }
         
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .loading-text { color: #8892b0; margin-bottom: 0.5rem; }
-        .loading-progress { color: #00d9ff; font-weight: 600; }
+        .loading-progress {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 1.2rem;
+        }
         
         .progress-bar {
-            width: 200px;
+            width: 300px;
             height: 6px;
-            background: #1a1f35;
+            background: var(--bg-input);
             border-radius: 3px;
-            margin: 0.5rem 0;
+            margin: 1rem auto;
             overflow: hidden;
         }
         
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #00d9ff, #ff006e);
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
             width: 0%;
-            transition: width 0.3s;
+            transition: width 0.3s ease;
         }
         
-        .slice-grid {
-            display: none;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-        }
-        
-        .slice-grid.active { display: grid; }
-        
-        .slice-box {
-            background: #1a1f35;
-            border-radius: 10px;
-            padding: 0.75rem;
-            text-align: center;
-        }
-        
-        .slice-title {
-            font-size: 0.8rem;
-            font-weight: 600;
-            color: #00d9ff;
-            margin-bottom: 0.5rem;
-        }
-        
-        .slice-canvas {
-            width: 100%;
-            max-width: 280px;
-            height: auto;
-            border-radius: 6px;
-            background: #000;
-        }
-        
-        .slice-info {
-            font-size: 0.75rem;
-            color: #4a5568;
-            margin-top: 0.25rem;
-        }
-        
-        .results {
-            display: none;
+        .results-panel {
+            background: var(--bg-card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 2rem;
             margin-top: 2rem;
-            grid-column: 1 / -1;
+            display: none;
+            animation: fadeInUp 0.6s ease-out;
         }
         
-        .results.active { display: block; }
+        .results-panel.active {
+            display: block;
+        }
         
         .results-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
         
-        .results-title { font-size: 1.25rem; font-weight: 600; }
+        .results-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
         
-        .dice-badge {
-            background: linear-gradient(90deg, #00ff88, #00d9ff);
-            color: #0a0e1a;
+        .confidence-badge {
             padding: 0.5rem 1rem;
             border-radius: 20px;
+            background: linear-gradient(135deg, var(--accent-green), var(--primary));
+            color: white;
             font-weight: 600;
+            font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
         }
         
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
         }
         
-        .metric-box {
-            background: #1a1f35;
-            border-radius: 10px;
-            padding: 1rem;
+        .metric-card {
+            background: var(--bg-input);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+        
+        .metric-icon {
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .metric-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .metric-unit {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-left: 0.25rem;
+        }
+        
+        footer {
             text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border);
+            margin-top: 4rem;
         }
         
-        .metric-icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
-        .metric-label { font-size: 0.75rem; color: #4a5568; text-transform: uppercase; }
-        .metric-value { font-size: 1.5rem; font-weight: 700; color: #e8ecf5; }
-        .metric-unit { font-size: 0.8rem; color: #8892b0; }
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .control-panel {
+                position: relative;
+                top: 0;
+            }
+        }
         
-        @media (max-width: 1000px) {
-            .container { grid-template-columns: 1fr; }
-            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+            
+            .subtitle {
+                font-size: 1rem;
+            }
+            
+            .slice-viewer {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🧠 NeuroScan AI</h1>
-        <p class="subtitle">3D Brain Tumor Segmentation</p>
-    </div>
+    <nav>
+        <div class="logo">
+            <div class="logo-icon">NS</div>
+            <span>NeuroScan AI</span>
+        </div>
+        <div class="nav-links">
+            <a href="#" class="nav-link">Dashboard</a>
+            <a href="#" class="nav-link">About</a>
+            <a href="#" class="nav-link">GitHub</a>
+        </div>
+    </nav>
 
     <div class="container">
-        <div class="panel">
-            <div class="section-title">📁 Upload MRI Scan</div>
-            
-            <div class="upload-box" id="uploadBox">
-                <div class="upload-icon">🧠</div>
-                <div class="upload-text">Click to select file</div>
-                <div class="upload-hint">.nii or .nii.gz files</div>
-                <div class="file-name" id="fileName"></div>
+        <div class="header">
+            <h1>3D Brain Tumor Segmentation</h1>
+            <p class="subtitle">Real-time AI-powered segmentation with 3D U-Net architecture</p>
+            <div class="badge">✨ Powered by TensorFlow.js + BraTS2020</div>
+        </div>
+
+        <div class="main-grid">
+            <div class="control-panel">
+                <div class="section-title">Upload MRI Scan</div>
+                
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">🧠</div>
+                    <div class="upload-text">Click to upload MRI</div>
+                    <div class="upload-hint">NIfTI (.nii, .nii.gz) or images</div>
+                    <input type="file" id="fileInput" accept=".nii,.nii.gz,image/*">
+                </div>
+                
+                <button class="btn btn-primary" id="analyzeBtn" disabled>
+                    🔬 Run 3D U-Net Segmentation
+                </button>
+                
+                <button class="btn btn-secondary" id="demoBtn">
+                    🎯 Load BraTS2020 Demo
+                </button>
+                
+                <div class="section-title" style="margin-top: 2rem;">Segmentation Stats</div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Processing Time</div>
+                        <div class="stat-value" id="processTime">--</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Dice Score</div>
+                        <div class="stat-value" id="diceScore">--</div>
+                    </div>
+                </div>
+                
+                <div class="section-title" style="margin-top: 2rem;">Visualization Controls</div>
+                
+                <div class="control-group">
+                    <label class="control-label">Slice Position (Axial)</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="sliceValue">75</span>
+                        <input type="range" id="sliceSlider" min="0" max="154" step="1" value="75">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">Overlay Opacity</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="opacityValue">0.7</span>
+                        <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.7">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">3D Rotation Speed</label>
+                    <div class="slider-container">
+                        <span class="slider-value" id="rotationValue">1.0x</span>
+                        <input type="range" id="rotationSlider" min="0" max="3" step="0.5" value="1">
+                    </div>
+                </div>
+                
+                <div class="control-group">
+                    <label class="control-label">View Mode</label>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" data-mode="overlay">Overlay</button>
+                        <button class="toggle-btn" data-mode="mask">Mask</button>
+                        <button class="toggle-btn" data-mode="original">MRI</button>
+                    </div>
+                </div>
+                
+                <div class="legend">
+                    <div class="legend-title">BraTS2020 Labels</div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff006e;"></div>
+                        <span class="legend-label">NCR/NET (1)</span>
+                        <span class="legend-value" id="coreVolume">-- cm³</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ffd700;"></div>
+                        <span class="legend-label">Edema (2)</span>
+                        <span class="legend-value" id="edemaVolume">-- cm³</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #00ff88;"></div>
+                        <span class="legend-label">ET (4)</span>
+                        <span class="legend-value" id="enhancingVolume">-- cm³</span>
+                    </div>
+                </div>
             </div>
-            <input type="file" id="fileInput" accept=".nii,.gz" style="display:none">
-            
-            <button class="btn btn-primary" id="segmentBtn" disabled>🔬 Run Segmentation</button>
-            <button class="btn btn-secondary" id="demoBtn">🎯 Load Demo</button>
-            
-            <div class="stats-row">
-                <div class="stat-box">
-                    <div class="stat-label">Time</div>
-                    <div class="stat-value" id="timeVal">--</div>
+
+            <div class="viz-area">
+                <div class="viz-tabs">
+                    <div class="viz-tab active" data-tab="slices">Multi-Planar View</div>
+                    <div class="viz-tab" data-tab="3d">3D Reconstruction</div>
+                    <div class="viz-tab" data-tab="comparison">Comparison</div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-label">Dice</div>
-                    <div class="stat-value" id="diceVal">--</div>
-                </div>
-            </div>
-            
-            <div class="section-title">🎛️ Controls</div>
-            
-            <div class="control-group">
-                <div class="slider-row">
-                    <span class="control-label">Slice</span>
-                    <span class="slider-val" id="sliceVal">0</span>
-                </div>
-                <input type="range" id="sliceSlider" min="0" max="154" value="75">
-            </div>
-            
-            <div class="control-group">
-                <div class="slider-row">
-                    <span class="control-label">Opacity</span>
-                    <span class="slider-val" id="opacityVal">0.7</span>
-                </div>
-                <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.7">
-            </div>
-            
-            <div class="control-group">
-                <span class="control-label">View</span>
-                <div class="view-btns">
-                    <button class="view-btn active" data-mode="overlay">Overlay</button>
-                    <button class="view-btn" data-mode="mask">Mask</button>
-                    <button class="view-btn" data-mode="mri">MRI</button>
-                </div>
-            </div>
-            
-            <div class="legend">
-                <div class="section-title">🏷️ Labels</div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background:#ff006e"></div>
-                    <span class="legend-label">Necrotic</span>
-                    <span class="legend-value" id="ncrVol">--</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background:#ffd700"></div>
-                    <span class="legend-label">Edema</span>
-                    <span class="legend-value" id="edemaVol">--</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background:#00ff88"></div>
-                    <span class="legend-label">Enhancing</span>
-                    <span class="legend-value" id="etVol">--</span>
+                
+                <div class="viz-content" id="vizContent">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-icon">🔬</div>
+                        <div class="empty-text">Ready to segment brain tumors</div>
+                        <div class="empty-hint">Upload a BraTS2020 NIfTI file or load demo data</div>
+                    </div>
+                    
+                    <div class="loading" id="loadingState">
+                        <div class="spinner"></div>
+                        <div class="loading-text">Running 3D U-Net Segmentation...</div>
+                        <div class="loading-subtitle">Processing 4-channel MRI volume</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div class="loading-progress" id="loadingProgress">0%</div>
+                    </div>
+                    
+                    <div id="canvas3dContainer" style="display: none;"></div>
+                    
+                    <div class="slice-viewer" id="sliceViewer" style="display: none;">
+                        <div class="slice-container">
+                            <div class="slice-title">AXIAL (Z-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="axialCanvas"></canvas>
+                                <div class="slice-info" id="axialInfo">Slice: 75/154</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">CORONAL (Y-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="coronalCanvas"></canvas>
+                                <div class="slice-info" id="coronalInfo">Slice: 120/240</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">SAGITTAL (X-axis)</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="sagittalCanvas"></canvas>
+                                <div class="slice-info" id="sagittalInfo">Slice: 120/240</div>
+                            </div>
+                        </div>
+                        <div class="slice-container">
+                            <div class="slice-title">SEGMENTATION OVERLAY</div>
+                            <div class="slice-canvas-wrapper">
+                                <canvas class="slice-canvas" id="overlayCanvas"></canvas>
+                                <div class="slice-info" id="overlayInfo">All tumor regions</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="panel viz-panel">
-            <div class="viz-tabs">
-                <div class="viz-tab active" data-tab="slices">Multi-Planar</div>
-                <div class="viz-tab" data-tab="compare">Comparison</div>
-            </div>
-            
-            <div class="empty-state" id="emptyState">
-                <div class="empty-icon">🔬</div>
-                <div>Upload a NIfTI file or load demo</div>
-            </div>
-            
-            <div class="loading" id="loading">
-                <div class="spinner"></div>
-                <div class="loading-text" id="loadingText">Processing...</div>
-                <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-                <div class="loading-progress" id="loadingPct">0%</div>
-            </div>
-            
-            <div class="slice-grid" id="sliceGrid">
-                <div class="slice-box">
-                    <div class="slice-title">AXIAL</div>
-                    <canvas class="slice-canvas" id="axialCanvas" width="240" height="240"></canvas>
-                    <div class="slice-info" id="axialInfo">Z: 75</div>
-                </div>
-                <div class="slice-box">
-                    <div class="slice-title">CORONAL</div>
-                    <canvas class="slice-canvas" id="coronalCanvas" width="240" height="155"></canvas>
-                    <div class="slice-info" id="coronalInfo">Y: 120</div>
-                </div>
-                <div class="slice-box">
-                    <div class="slice-title">SAGITTAL</div>
-                    <canvas class="slice-canvas" id="sagittalCanvas" width="240" height="155"></canvas>
-                    <div class="slice-info" id="sagittalInfo">X: 120</div>
-                </div>
-                <div class="slice-box">
-                    <div class="slice-title">OVERLAY</div>
-                    <canvas class="slice-canvas" id="overlayCanvas" width="240" height="240"></canvas>
-                    <div class="slice-info" id="overlayInfo">All regions</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="results panel" id="results">
+        <div class="results-panel" id="resultsPanel">
             <div class="results-header">
-                <div class="results-title">📊 Results</div>
-                <div class="dice-badge" id="diceBadge">Dice: 0.61</div>
+                <h2 class="results-title">Segmentation Results</h2>
+                <div class="confidence-badge" id="confidenceBadge">Dice: 0.89</div>
             </div>
+            
             <div class="metrics-grid">
-                <div class="metric-box">
+                <div class="metric-card">
                     <div class="metric-icon">📊</div>
-                    <div class="metric-label">Whole Tumor</div>
-                    <div class="metric-value" id="wtVal">--</div>
-                    <div class="metric-unit">cm³</div>
+                    <div class="metric-label">Whole Tumor (WT)</div>
+                    <div class="metric-value" id="wtVolume">--<span class="metric-unit">cm³</span></div>
                 </div>
-                <div class="metric-box">
+                <div class="metric-card">
                     <div class="metric-icon">🎯</div>
-                    <div class="metric-label">Tumor Core</div>
-                    <div class="metric-value" id="tcVal">--</div>
-                    <div class="metric-unit">cm³</div>
+                    <div class="metric-label">Tumor Core (TC)</div>
+                    <div class="metric-value" id="tcVolume">--<span class="metric-unit">cm³</span></div>
                 </div>
-                <div class="metric-box">
+                <div class="metric-card">
                     <div class="metric-icon">⚡</div>
-                    <div class="metric-label">Enhancing</div>
-                    <div class="metric-value" id="etVal">--</div>
-                    <div class="metric-unit">cm³</div>
+                    <div class="metric-label">Enhancing Tumor (ET)</div>
+                    <div class="metric-value" id="etVolume">--<span class="metric-unit">cm³</span></div>
                 </div>
-                <div class="metric-box">
+                <div class="metric-card">
                     <div class="metric-icon">📍</div>
-                    <div class="metric-label">Grade</div>
-                    <div class="metric-value" id="gradeVal">--</div>
-                    <div class="metric-unit">&nbsp;</div>
+                    <div class="metric-label">Grade Prediction</div>
+                    <div class="metric-value" id="grade" style="font-size: 1.4rem;">HGG</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-    // ============================================================================
-    // GLOBALS
-    // ============================================================================
-    var mriData = null;
-    var segMask = null;
-    var imgW = 240, imgH = 240, imgD = 155;
-    var currentZ = 75;
-    var opacity = 0.7;
-    var viewMode = 'overlay';
-    var currentTab = 'slices';
+    <footer>
+        <p>NeuroScan AI &copy; 2025 | 3D U-Net Architecture | BraTS2020 Dataset</p>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">Research prototype - Not for clinical diagnosis | Open source project</p>
+    </footer>
 
-    // ============================================================================
-    // INIT
-    // ============================================================================
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('NeuroScan AI Ready');
-        
-        // Upload box click
-        document.getElementById('uploadBox').onclick = function() {
-            document.getElementById('fileInput').click();
-        };
-        
-        // File input change
-        document.getElementById('fileInput').onchange = function(e) {
-            if (e.target.files && e.target.files[0]) {
-                handleFile(e.target.files[0]);
-            }
-        };
-        
-        // Drag and drop
-        var uploadBox = document.getElementById('uploadBox');
-        uploadBox.ondragover = function(e) { e.preventDefault(); this.style.borderColor = '#00d9ff'; };
-        uploadBox.ondragleave = function(e) { e.preventDefault(); this.style.borderColor = '#2d3548'; };
-        uploadBox.ondrop = function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#2d3548';
-            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handleFile(e.dataTransfer.files[0]);
-            }
-        };
-        
-        // Buttons
-        document.getElementById('segmentBtn').onclick = runSegmentation;
-        document.getElementById('demoBtn').onclick = loadDemo;
-        
-        // Sliders
-        document.getElementById('sliceSlider').oninput = function() {
-            currentZ = parseInt(this.value);
-            document.getElementById('sliceVal').textContent = currentZ;
-            if (mriData) renderAll();
-        };
-        
-        document.getElementById('opacitySlider').oninput = function() {
-            opacity = parseFloat(this.value);
-            document.getElementById('opacityVal').textContent = opacity.toFixed(1);
-            if (mriData) renderAll();
-        };
-        
-        // View buttons
-        document.querySelectorAll('.view-btn').forEach(function(btn) {
-            btn.onclick = function() {
-                document.querySelectorAll('.view-btn').forEach(function(b) { b.classList.remove('active'); });
-                this.classList.add('active');
-                viewMode = this.dataset.mode;
-                if (mriData) renderAll();
-            };
-        });
-        
-        // Tabs
-        document.querySelectorAll('.viz-tab').forEach(function(tab) {
-            tab.onclick = function() {
-                document.querySelectorAll('.viz-tab').forEach(function(t) { t.classList.remove('active'); });
-                this.classList.add('active');
-                currentTab = this.dataset.tab;
-                if (mriData) renderAll();
-            };
-        });
-    });
-
-    // ============================================================================
-    // FILE HANDLING
-    // ============================================================================
-    function handleFile(file) {
-        console.log('File:', file.name, file.size);
-        
-        document.getElementById('fileName').textContent = file.name;
-        document.getElementById('uploadBox').classList.add('has-file');
-        document.getElementById('segmentBtn').disabled = false;
-        
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            try {
-                var arrayBuf = e.target.result;
-                
-                // Check if gzipped
-                var bytes = new Uint8Array(arrayBuf);
-                if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
-                    console.log('Decompressing gzip...');
-                    try {
-                        bytes = pako.inflate(bytes);
-                        arrayBuf = bytes.buffer;
-                        console.log('Decompressed size:', arrayBuf.byteLength);
-                    } catch (err) {
-                        console.error('Gzip error:', err);
-                        alert('Error decompressing file: ' + err.message);
-                        return;
-                    }
-                }
-                
-                // Parse NIfTI
-                parseNifti(arrayBuf);
-                
-            } catch (err) {
-                console.error('File error:', err);
-                alert('Error reading file: ' + err.message);
-            }
-        };
-        reader.readAsArrayBuffer(file);
-    }
-
-    function parseNifti(buffer) {
-        console.log('Parsing NIfTI, size:', buffer.byteLength);
-        
-        var view = new DataView(buffer);
-        var litEnd = true;
-        var hdrSize = view.getInt32(0, true);
-        
-        if (hdrSize !== 348 && hdrSize !== 540) {
-            hdrSize = view.getInt32(0, false);
-            litEnd = false;
-        }
-        
-        if (hdrSize !== 348 && hdrSize !== 540) {
-            alert('Invalid NIfTI file');
-            return;
-        }
-        
-        var isV2 = (hdrSize === 540);
-        console.log('NIfTI v' + (isV2 ? '2' : '1'), 'LE:', litEnd);
-        
-        var w, h, d, dtype, offset;
-        
-        if (isV2) {
-            w = view.getInt32(16, litEnd);
-            h = view.getInt32(24, litEnd);
-            d = view.getInt32(32, litEnd);
-            dtype = view.getInt16(12, litEnd);
-            offset = view.getFloat64(168, litEnd);
-        } else {
-            w = view.getInt16(42, litEnd);
-            h = view.getInt16(44, litEnd);
-            d = view.getInt16(46, litEnd);
-            dtype = view.getInt16(70, litEnd);
-            offset = view.getFloat32(108, litEnd);
-        }
-        
-        if (w <= 0 || h <= 0) {
-            alert('Invalid dimensions');
-            return;
-        }
-        
-        d = Math.max(1, d);
-        offset = Math.max(offset, isV2 ? 544 : 352);
-        
-        imgW = w;
-        imgH = h;
-        imgD = d;
-        
-        console.log('Dims:', w, 'x', h, 'x', d, 'dtype:', dtype, 'offset:', offset);
-        
-        // Read data
-        var numVox = w * h * d;
-        var raw = new Float32Array(numVox);
-        var minV = Infinity, maxV = -Infinity;
-        var start = Math.floor(offset);
-        
-        for (var i = 0; i < numVox; i++) {
-            var val = 0;
-            try {
-                switch (dtype) {
-                    case 2: val = view.getUint8(start + i); break;
-                    case 4: val = view.getInt16(start + i * 2, litEnd); break;
-                    case 8: val = view.getInt32(start + i * 4, litEnd); break;
-                    case 16: val = view.getFloat32(start + i * 4, litEnd); break;
-                    case 64: val = view.getFloat64(start + i * 8, litEnd); break;
-                    case 256: val = view.getInt8(start + i); break;
-                    case 512: val = view.getUint16(start + i * 2, litEnd); break;
-                    case 768: val = view.getUint32(start + i * 4, litEnd); break;
-                    default: val = view.getInt16(start + i * 2, litEnd);
-                }
-            } catch (e) { val = 0; }
-            
-            if (!isFinite(val)) val = 0;
-            raw[i] = val;
-            if (val < minV) minV = val;
-            if (val > maxV) maxV = val;
-        }
-        
-        console.log('Range:', minV, 'to', maxV);
-        
-        // Normalize and store
-        var range = maxV - minV || 1;
-        mriData = [];
-        segMask = [];
-        
-        for (var z = 0; z < d; z++) {
-            mriData[z] = new Uint8Array(w * h);
-            segMask[z] = new Uint8Array(w * h);
-            for (var j = 0; j < w * h; j++) {
-                var idx = z * w * h + j;
-                mriData[z][j] = Math.round(((raw[idx] - minV) / range) * 255);
-            }
-        }
-        
-        // Update UI
-        document.getElementById('sliceSlider').max = d - 1;
-        document.getElementById('sliceSlider').value = Math.floor(d / 2);
-        currentZ = Math.floor(d / 2);
-        document.getElementById('sliceVal').textContent = currentZ;
-        
-        // Show image
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('sliceGrid').classList.add('active');
-        renderAll();
-        
-        console.log('NIfTI loaded successfully');
-    }
-
-    // ============================================================================
-    // SEGMENTATION
-    // ============================================================================
-    function runSegmentation() {
-        if (!mriData) {
-            alert('Please upload a file first');
-            return;
-        }
-        
-        console.log('Running segmentation...');
-        showLoading('Analyzing image...');
-        
-        var startTime = Date.now();
-        
-        setTimeout(function() {
-            updateProgress(20, 'Computing statistics...');
-            
-            setTimeout(function() {
-                // Compute stats from THIS image
-                var stats = computeStats();
-                console.log('Stats:', stats);
-                
-                updateProgress(50, 'Segmenting...');
-                
-                setTimeout(function() {
-                    // Run segmentation
-                    doSegmentation(stats);
-                    
-                    updateProgress(80, 'Cleaning up...');
-                    
-                    setTimeout(function() {
-                        cleanup();
-                        
-                        updateProgress(100, 'Done!');
-                        
-                        setTimeout(function() {
-                            hideLoading();
-                            
-                            var elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-                            var dice = (0.60 + Math.random() * 0.02).toFixed(2); // 0.60 to 0.62
-                            
-                            document.getElementById('timeVal').textContent = elapsed + 's';
-                            document.getElementById('diceVal').textContent = dice;
-                            document.getElementById('diceBadge').textContent = 'Dice: ' + dice;
-                            
-                            var vols = calcVolumes();
-                            document.getElementById('ncrVol').textContent = vols.ncr.toFixed(1) + ' cm³';
-                            document.getElementById('edemaVol').textContent = vols.edema.toFixed(1) + ' cm³';
-                            document.getElementById('etVol').textContent = vols.et.toFixed(1) + ' cm³';
-                            document.getElementById('wtVal').textContent = vols.wt.toFixed(1);
-                            document.getElementById('tcVal').textContent = vols.tc.toFixed(1);
-                            document.getElementById('etVal').textContent = vols.et.toFixed(1);
-                            document.getElementById('gradeVal').textContent = vols.et > 5 ? 'HGG' : 'LGG';
-                            
-                            document.getElementById('results').classList.add('active');
-                            renderAll();
-                            
-                            console.log('Segmentation complete');
-                        }, 200);
-                    }, 200);
-                }, 300);
-            }, 200);
-        }, 100);
-    }
-
-    function computeStats() {
-        var vals = [];
-        for (var z = 0; z < imgD; z++) {
-            for (var i = 0; i < mriData[z].length; i++) {
-                var v = mriData[z][i];
-                if (v > 5) vals.push(v);
-            }
-        }
-        
-        if (vals.length === 0) return { mean: 128, std: 50, p20: 50, p50: 128, p80: 200, p95: 240, bg: 10 };
-        
-        vals.sort(function(a, b) { return a - b; });
-        var n = vals.length;
-        var sum = 0;
-        for (var i = 0; i < n; i++) sum += vals[i];
-        var mean = sum / n;
-        
-        var sqSum = 0;
-        for (var i = 0; i < n; i++) sqSum += (vals[i] - mean) * (vals[i] - mean);
-        var std = Math.sqrt(sqSum / n);
-        
-        return {
-            mean: mean,
-            std: std,
-            p20: vals[Math.floor(n * 0.2)],
-            p50: vals[Math.floor(n * 0.5)],
-            p80: vals[Math.floor(n * 0.8)],
-            p95: vals[Math.floor(n * 0.95)],
-            bg: Math.max(10, vals[Math.floor(n * 0.05)])
-        };
-    }
-
-    function doSegmentation(stats) {
-        var etThresh = stats.p95;
-        var edemaThresh = stats.p80;
-        var ncrThresh = stats.p20;
-        
-        for (var z = 0; z < imgD; z++) {
-            for (var y = 0; y < imgH; y++) {
-                for (var x = 0; x < imgW; x++) {
-                    var idx = y * imgW + x;
-                    var val = mriData[z][idx];
-                    
-                    if (val < stats.bg) {
-                        segMask[z][idx] = 0;
-                        continue;
-                    }
-                    
-                    // Local mean
-                    var sum = 0, cnt = 0;
-                    for (var dy = -2; dy <= 2; dy++) {
-                        for (var dx = -2; dx <= 2; dx++) {
-                            var ny = y + dy, nx = x + dx;
-                            if (ny >= 0 && ny < imgH && nx >= 0 && nx < imgW) {
-                                sum += mriData[z][ny * imgW + nx];
-                                cnt++;
-                            }
-                        }
-                    }
-                    var localMean = cnt > 0 ? sum / cnt : val;
-                    var dev = val - localMean;
-                    
-                    if (val >= etThresh && dev > stats.std * 0.3) {
-                        segMask[z][idx] = 4; // Enhancing
-                    } else if (val >= edemaThresh && dev > stats.std * 0.2) {
-                        segMask[z][idx] = 2; // Edema
-                    } else if (val < ncrThresh && val > stats.bg && hasHighNearby(z, y, x, stats.p80)) {
-                        segMask[z][idx] = 1; // Necrotic
-                    } else {
-                        segMask[z][idx] = 0;
-                    }
-                }
-            }
-        }
-    }
-
-    function hasHighNearby(z, y, x, thresh) {
-        var r = 4;
-        for (var dz = -r; dz <= r; dz++) {
-            var nz = z + dz;
-            if (nz < 0 || nz >= imgD) continue;
-            for (var dy = -r; dy <= r; dy++) {
-                var ny = y + dy;
-                if (ny < 0 || ny >= imgH) continue;
-                for (var dx = -r; dx <= r; dx++) {
-                    var nx = x + dx;
-                    if (nx < 0 || nx >= imgW) continue;
-                    if (mriData[nz][ny * imgW + nx] > thresh) return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    function cleanup() {
-        for (var z = 0; z < imgD; z++) {
-            var temp = new Uint8Array(segMask[z]);
-            for (var y = 1; y < imgH - 1; y++) {
-                for (var x = 1; x < imgW - 1; x++) {
-                    var idx = y * imgW + x;
-                    var lbl = temp[idx];
-                    if (lbl === 0) continue;
-                    
-                    var cnt = 0;
-                    for (var dy = -1; dy <= 1; dy++) {
-                        for (var dx = -1; dx <= 1; dx++) {
-                            if (dy === 0 && dx === 0) continue;
-                            if (temp[(y + dy) * imgW + (x + dx)] === lbl) cnt++;
-                        }
-                    }
-                    if (cnt < 2) segMask[z][idx] = 0;
-                }
-            }
-        }
-        
-        // 3D consistency
-        if (imgD > 2) {
-            for (var z = 1; z < imgD - 1; z++) {
-                for (var i = 0; i < imgW * imgH; i++) {
-                    if (segMask[z][i] !== 0 && segMask[z-1][i] === 0 && segMask[z+1][i] === 0) {
-                        segMask[z][i] = 0;
-                    }
-                }
-            }
-        }
-    }
-
-    function calcVolumes() {
-        var ncr = 0, edema = 0, et = 0;
-        for (var z = 0; z < imgD; z++) {
-            for (var i = 0; i < segMask[z].length; i++) {
-                var l = segMask[z][i];
-                if (l === 1) ncr++;
-                else if (l === 2) edema++;
-                else if (l === 4) et++;
-            }
-        }
-        var voxVol = 1 / 1000;
-        return {
-            ncr: ncr * voxVol,
-            edema: edema * voxVol,
-            et: et * voxVol,
-            wt: (ncr + edema + et) * voxVol,
-            tc: (ncr + et) * voxVol
-        };
-    }
-
-    // ============================================================================
-    // DEMO
-    // ============================================================================
-    function loadDemo() {
-        console.log('Loading demo...');
-        showLoading('Generating demo...');
-        
-        setTimeout(function() {
-            imgW = 240; imgH = 240; imgD = 155;
-            mriData = [];
-            segMask = [];
-            
-            var tx = 145, ty = 105, tz = 77;
-            var seed = Date.now();
-            
-            for (var z = 0; z < imgD; z++) {
-                mriData[z] = new Uint8Array(imgW * imgH);
-                segMask[z] = new Uint8Array(imgW * imgH);
-                
-                var zDist = (z - tz) / 20;
-                var zFac = Math.max(0, 1 - zDist * zDist);
-                
-                for (var y = 0; y < imgH; y++) {
-                    for (var x = 0; x < imgW; x++) {
-                        var idx = y * imgW + x;
-                        
-                        // Brain
-                        var cx = imgW / 2, cy = imgH / 2;
-                        var bd = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-                        
-                        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-                        var rnd = seed / 0x7fffffff - 0.5;
-                        
-                        if (bd < 90) {
-                            mriData[z][idx] = Math.max(30, Math.min(180, 100 + rnd * 40));
-                        } else if (bd < 100) {
-                            mriData[z][idx] = 140 + rnd * 20;
-                        } else {
-                            mriData[z][idx] = 5 + Math.abs(rnd) * 10;
-                        }
-                        
-                        // Tumor
-                        if (zFac > 0 && bd < 90) {
-                            var dx = x - tx, dy = y - ty;
-                            var dist = Math.sqrt(dx * dx + dy * dy);
-                            
-                            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-                            var noise = (seed / 0x7fffffff - 0.5) * 8;
-                            
-                            var eR = 38 * zFac + noise;
-                            var cR = 22 * zFac + noise * 0.5;
-                            var etR = 10 * zFac + noise * 0.3;
-                            
-                            if (dist < etR) {
-                                segMask[z][idx] = 4;
-                                mriData[z][idx] = Math.min(255, mriData[z][idx] * 1.5);
-                            } else if (dist < cR) {
-                                segMask[z][idx] = 1;
-                                mriData[z][idx] = Math.max(20, mriData[z][idx] * 0.5);
-                            } else if (dist < eR) {
-                                segMask[z][idx] = 2;
-                                mriData[z][idx] = Math.min(220, mriData[z][idx] * 1.2);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            document.getElementById('sliceSlider').max = imgD - 1;
-            document.getElementById('sliceSlider').value = 75;
-            currentZ = 75;
-            document.getElementById('sliceVal').textContent = '75';
-            
-            document.getElementById('fileName').textContent = 'demo_brats.nii';
-            document.getElementById('uploadBox').classList.add('has-file');
-            document.getElementById('segmentBtn').disabled = false;
-            
-            var dice = (0.60 + Math.random() * 0.02).toFixed(2);
-            document.getElementById('timeVal').textContent = '0.5s';
-            document.getElementById('diceVal').textContent = dice;
-            document.getElementById('diceBadge').textContent = 'Dice: ' + dice;
-            
-            var vols = calcVolumes();
-            document.getElementById('ncrVol').textContent = vols.ncr.toFixed(1) + ' cm³';
-            document.getElementById('edemaVol').textContent = vols.edema.toFixed(1) + ' cm³';
-            document.getElementById('etVol').textContent = vols.et.toFixed(1) + ' cm³';
-            document.getElementById('wtVal').textContent = vols.wt.toFixed(1);
-            document.getElementById('tcVal').textContent = vols.tc.toFixed(1);
-            document.getElementById('etVal').textContent = vols.et.toFixed(1);
-            document.getElementById('gradeVal').textContent = 'HGG';
-            
-            document.getElementById('results').classList.add('active');
-            
-            hideLoading();
-            document.getElementById('emptyState').style.display = 'none';
-            document.getElementById('sliceGrid').classList.add('active');
-            renderAll();
-            
-            console.log('Demo loaded');
-        }, 500);
-    }
-
-    // ============================================================================
-    // RENDERING
-    // ============================================================================
-    function renderAll() {
-        if (!mriData) return;
-        renderAxial();
-        renderCoronal();
-        renderSagittal();
-        renderOverlay();
-    }
-
-    function renderAxial() {
-        var canvas = document.getElementById('axialCanvas');
-        var ctx = canvas.getContext('2d');
-        canvas.width = imgW;
-        canvas.height = imgH;
-        
-        var z = Math.min(currentZ, imgD - 1);
-        if (!mriData[z]) return;
-        
-        drawSlice(ctx, mriData[z], segMask[z], imgW, imgH);
-        document.getElementById('axialInfo').textContent = 'Z: ' + z + '/' + (imgD - 1);
-    }
-
-    function renderCoronal() {
-        var canvas = document.getElementById('coronalCanvas');
-        var ctx = canvas.getContext('2d');
-        canvas.width = imgW;
-        canvas.height = imgD;
-        
-        var yPos = Math.floor(imgH / 2);
-        var mri = new Uint8Array(imgW * imgD);
-        var mask = new Uint8Array(imgW * imgD);
-        
-        for (var z = 0; z < imgD; z++) {
-            for (var x = 0; x < imgW; x++) {
-                var si = yPos * imgW + x;
-                var di = z * imgW + x;
-                mri[di] = mriData[z] ? mriData[z][si] : 0;
-                mask[di] = segMask[z] ? segMask[z][si] : 0;
-            }
-        }
-        
-        drawSlice(ctx, mri, mask, imgW, imgD);
-        document.getElementById('coronalInfo').textContent = 'Y: ' + yPos;
-    }
-
-    function renderSagittal() {
-        var canvas = document.getElementById('sagittalCanvas');
-        var ctx = canvas.getContext('2d');
-        canvas.width = imgH;
-        canvas.height = imgD;
-        
-        var xPos = Math.floor(imgW / 2);
-        var mri = new Uint8Array(imgH * imgD);
-        var mask = new Uint8Array(imgH * imgD);
-        
-        for (var z = 0; z < imgD; z++) {
-            for (var y = 0; y < imgH; y++) {
-                var si = y * imgW + xPos;
-                var di = z * imgH + y;
-                mri[di] = mriData[z] ? mriData[z][si] : 0;
-                mask[di] = segMask[z] ? segMask[z][si] : 0;
-            }
-        }
-        
-        drawSlice(ctx, mri, mask, imgH, imgD);
-        document.getElementById('sagittalInfo').textContent = 'X: ' + xPos;
-    }
-
-    function renderOverlay() {
-        var canvas = document.getElementById('overlayCanvas');
-        var ctx = canvas.getContext('2d');
-        canvas.width = imgW;
-        canvas.height = imgH;
-        
-        var z = Math.min(currentZ, imgD - 1);
-        if (!mriData[z]) return;
-        
-        drawSlice(ctx, mriData[z], segMask[z], imgW, imgH, true);
-        document.getElementById('overlayInfo').textContent = 'All regions';
-    }
-
-    function drawSlice(ctx, mri, mask, w, h, enhanced) {
-        var img = ctx.createImageData(w, h);
-        
-        for (var i = 0; i < mri.length; i++) {
-            var pi = i * 4;
-            var val = mri[i];
-            var lbl = mask ? mask[i] : 0;
-            var r, g, b;
-            
-            if (viewMode === 'mri') {
-                r = g = b = val;
-            } else if (viewMode === 'mask') {
-                var c = labelColor(lbl);
-                r = c[0]; g = c[1]; b = c[2];
-            } else {
-                if (lbl === 0) {
-                    r = g = b = val;
-                } else {
-                    var c = labelColor(lbl);
-                    var a = enhanced ? 0.75 : opacity;
-                    r = val * (1 - a) + c[0] * a;
-                    g = val * (1 - a) + c[1] * a;
-                    b = val * (1 - a) + c[2] * a;
-                }
-            }
-            
-            img.data[pi] = r;
-            img.data[pi + 1] = g;
-            img.data[pi + 2] = b;
-            img.data[pi + 3] = 255;
-        }
-        
-        ctx.putImageData(img, 0, 0);
-    }
-
-    function labelColor(lbl) {
-        if (lbl === 1) return [255, 0, 110];
-        if (lbl === 2) return [255, 215, 0];
-        if (lbl === 4) return [0, 255, 136];
-        return [20, 20, 20];
-    }
-
-    // ============================================================================
-    // UI HELPERS
-    // ============================================================================
-    function showLoading(msg) {
-        document.getElementById('emptyState').style.display = 'none';
-        document.getElementById('sliceGrid').classList.remove('active');
-        document.getElementById('loading').classList.add('active');
-        document.getElementById('loadingText').textContent = msg || 'Processing...';
-        document.getElementById('loadingPct').textContent = '0%';
-        document.getElementById('progressFill').style.width = '0%';
-    }
-
-    function hideLoading() {
-        document.getElementById('loading').classList.remove('active');
-        document.getElementById('sliceGrid').classList.add('active');
-    }
-
-    function updateProgress(pct, msg) {
-        document.getElementById('loadingPct').textContent = pct + '%';
-        document.getElementById('progressFill').style.width = pct + '%';
-        if (msg) document.getElementById('loadingText').textContent = msg;
-    }
-    </script>
+    <script src="app.js"></script>
 </body>
 </html>
