@@ -805,10 +805,11 @@ class OrganicNoise {
 
 /**
  * Generate synthetic BraTS2020-like MRI data
- * Creates realistic brain structure with ORGANIC irregular tumor regions
+ * Creates realistic brain structure with a FOCUSED tumor in right frontal region
+ * Matching the reference image pattern: Green (enhancing) center, Yellow (edema) surround, Red (necrotic) ring
  */
 function generateSyntheticMRIData() {
-    console.log('Generating synthetic MRI data with realistic tumor shapes...');
+    console.log('Generating synthetic MRI data with focused tumor region...');
     
     const width = 240;
     const height = 240;
@@ -817,125 +818,91 @@ function generateSyntheticMRIData() {
     mriData = new Array(depth);
     segmentationMask = new Array(depth);
     
-    // Initialize noise generators with different seeds for variety
-    const noiseEdema = new OrganicNoise(42);
-    const noiseCore = new OrganicNoise(137);
-    const noiseEnhancing = new OrganicNoise(256);
+    // Initialize noise generators
     const noiseBrain = new OrganicNoise(999);
+    const noiseTumor = new OrganicNoise(42);
     
-    // Tumor parameters - positioned in right frontal region (matching BraTS reference)
-    // In radiological convention: right hemisphere appears on left side of image
-    const tumorCenterX = 95;   // Left side of image = right hemisphere
-    const tumorCenterY = 85;   // Upper/frontal region
-    const tumorCenterZ = 77;
+    // Tumor location - RIGHT FRONTAL region (appears on LEFT side of axial image)
+    // Matching reference image position
+    const tumorCenterX = 85;    // Left side of image (right hemisphere)
+    const tumorCenterY = 75;    // Upper/frontal area
+    const tumorCenterZ = 80;    // Mid-axial level
     
-    // Base radii for tumor regions (will be modified by noise)
-    const edemaBaseRadius = 42;
-    const coreBaseRadius = 26;
-    const enhancingBaseRadius = 14;
+    // Compact tumor radii - focused, not spread out
+    const edemaRadius = 32;        // Outer yellow region
+    const necroticRadius = 22;     // Red NCR/NET region  
+    const enhancingRadius = 12;    // Inner green enhancing core
     
-    // Noise parameters for organic shapes
-    const noiseScale = 0.08;
-    const noiseAmplitude = 0.5; // How much the shape varies
+    // Z-axis extent (how many slices the tumor spans)
+    const tumorZExtent = 25;
     
     for (let z = 0; z < depth; z++) {
         mriData[z] = new Uint8Array(width * height);
         segmentationMask[z] = new Uint8Array(width * height);
         
-        // Z-factor for 3D tumor shape (ellipsoid base)
-        const zDist = (z - tumorCenterZ) / 22;
-        const zFactor = Math.max(0, 1 - zDist * zDist);
+        // Calculate z-factor for 3D ellipsoid shape
+        const zDist = Math.abs(z - tumorCenterZ);
+        const zFactor = Math.max(0, 1 - (zDist / tumorZExtent));
         
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const idx = y * width + x;
                 
-                // Generate brain tissue intensity
+                // Generate brain tissue first
                 mriData[z][idx] = generateBrainIntensity(x, y, z, width, height, noiseBrain);
                 
+                // Skip if outside tumor Z range
                 if (zFactor <= 0) continue;
                 
-                // Calculate distance from tumor center
+                // Distance from tumor center (2D on this slice)
                 const dx = x - tumorCenterX;
                 const dy = y - tumorCenterY;
-                const baseDist = Math.sqrt(dx * dx + dy * dy);
+                const dist = Math.sqrt(dx * dx + dy * dy);
                 
-                // Calculate angle for noise lookup (creates angular variation)
+                // Apply z-factor to radii (tumor gets smaller at edges)
+                const currentEdemaR = edemaRadius * zFactor;
+                const currentNecroticR = necroticRadius * zFactor;
+                const currentEnhancingR = enhancingRadius * zFactor;
+                
+                // Add subtle organic variation to boundaries
                 const angle = Math.atan2(dy, dx);
+                const boundaryNoise = noiseTumor.fbm2D(
+                    Math.cos(angle) * 2 + z * 0.05,
+                    Math.sin(angle) * 2,
+                    3, 2.0, 0.5
+                ) * 4;
                 
-                // Generate organic boundary variations using noise
-                // Different noise patterns for each tumor region
-                const noiseX = Math.cos(angle) * 3 + z * 0.1;
-                const noiseY = Math.sin(angle) * 3 + z * 0.1;
+                const adjustedDist = dist + boundaryNoise;
                 
-                // Edema boundary - large, diffuse, irregular
-                const edemaNoiseVal = noiseEdema.fbm2D(
-                    noiseX * noiseScale * 0.7,
-                    noiseY * noiseScale * 0.7,
-                    5, 2.2, 0.5
-                );
-                const edemaRadius = edemaBaseRadius * zFactor * (1 + edemaNoiseVal * noiseAmplitude * 1.3);
+                // Check brain boundary
+                const brainCenterX = width / 2;
+                const brainCenterY = height / 2;
+                const brainDist = Math.sqrt(Math.pow(x - brainCenterX, 2) + Math.pow(y - brainCenterY, 2));
+                if (brainDist > 90) continue;
                 
-                // Core boundary - medium, more irregular
-                const coreNoiseVal = noiseCore.fbm2D(
-                    noiseX * noiseScale * 1.2,
-                    noiseY * noiseScale * 1.2,
-                    4, 2.0, 0.55
-                );
-                const coreRadius = coreBaseRadius * zFactor * (1 + coreNoiseVal * noiseAmplitude);
+                // Assign tumor labels based on distance (concentric rings like reference)
+                // Reference shows: Green center (enhancing), surrounded by Yellow (edema), with Red (necrotic) as ring
                 
-                // Enhancing tumor boundary - small, irregular patches
-                const enhNoiseVal = noiseEnhancing.fbm2D(
-                    noiseX * noiseScale * 1.5,
-                    noiseY * noiseScale * 1.5,
-                    3, 2.5, 0.6
-                );
-                const enhancingRadius = enhancingBaseRadius * zFactor * (1 + enhNoiseVal * noiseAmplitude * 0.8);
-                
-                // Add secondary noise for more complex shapes (protrusions/indentations)
-                const secondaryNoise = noiseEdema.noise2D(x * 0.03, y * 0.03) * 6;
-                
-                // Determine tumor label based on distance and noise-modified radii
-                const adjustedDist = baseDist + secondaryNoise;
-                
-                // Create non-concentric regions (more realistic)
-                // Enhancing tumor can appear in patches, not just center
-                const enhancingPatchNoise = noiseEnhancing.fbm2D(x * 0.05, y * 0.05, 3, 2.0, 0.5);
-                const isEnhancingPatch = enhancingPatchNoise > 0.25 && adjustedDist < coreRadius * 1.2;
-                
-                // Check if within brain boundary
-                const centerX = width / 2;
-                const centerY = height / 2;
-                const brainDist = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-                if (brainDist > 90) continue; // Outside brain
-                
-                if (adjustedDist < enhancingRadius || (isEnhancingPatch && adjustedDist < coreRadius)) {
-                    // Enhancing tumor (ET) - label 4 - bright, irregular core regions
+                if (adjustedDist < currentEnhancingR) {
+                    // GREEN - GD-Enhancing Tumor (center) - Label 4
                     segmentationMask[z][idx] = 4;
-                    // Bright enhancement on MRI
-                    const enhancement = 1.4 + enhNoiseVal * 0.3;
-                    mriData[z][idx] = Math.min(255, mriData[z][idx] * enhancement);
+                    mriData[z][idx] = Math.min(255, 180 + noiseTumor.noise2D(x * 0.1, y * 0.1) * 30);
                 }
-                else if (adjustedDist < coreRadius) {
-                    // Necrotic/Non-enhancing core (NCR/NET) - label 1 - darker, dead tissue
+                else if (adjustedDist < currentNecroticR) {
+                    // RED - NCR/NET Necrotic core (ring around enhancing) - Label 1
                     segmentationMask[z][idx] = 1;
-                    // Darker necrotic tissue
-                    mriData[z][idx] = Math.max(20, mriData[z][idx] * (0.5 + coreNoiseVal * 0.2));
+                    mriData[z][idx] = Math.max(40, 80 + noiseTumor.noise2D(x * 0.1, y * 0.1) * 20);
                 }
-                else if (adjustedDist < edemaRadius) {
-                    // Peritumoral edema (ED) - label 2 - swelling, irregular boundary
+                else if (adjustedDist < currentEdemaR) {
+                    // YELLOW - Peritumoral Edema (outer region) - Label 2
                     segmentationMask[z][idx] = 2;
-                    // Slightly brighter due to fluid
-                    mriData[z][idx] = Math.min(220, mriData[z][idx] * (1.15 + edemaNoiseVal * 0.1));
+                    mriData[z][idx] = Math.min(220, 150 + noiseTumor.noise2D(x * 0.1, y * 0.1) * 25);
                 }
             }
         }
     }
     
-    // Post-process to add more irregular features
-    addIrregularFeatures();
-    
-    console.log('✅ Synthetic MRI data with realistic tumor shapes generated');
+    console.log('✅ Synthetic MRI data with focused tumor generated');
     return { mriData, segmentationMask };
 }
 
@@ -977,125 +944,7 @@ function generateBrainIntensity(x, y, z, width, height, noiseBrain) {
     }
 }
 
-/**
- * Add irregular features like finger-like projections and internal heterogeneity
- */
-function addIrregularFeatures() {
-    const width = 240;
-    const height = 240;
-    const depth = 155;
-    const noise = new OrganicNoise(789);
-    
-    // Add finger-like projections to edema
-    for (let z = 55; z < 100; z++) {
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = y * width + x;
-                
-                // Only modify border regions of edema
-                if (segmentationMask[z][idx] === 2) {
-                    // Check if near edge of edema
-                    let isEdge = false;
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dx = -1; dx <= 1; dx++) {
-                            const ny = y + dy;
-                            const nx = x + dx;
-                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                                if (segmentationMask[z][ny * width + nx] === 0) {
-                                    isEdge = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (isEdge) break;
-                    }
-                    
-                    if (isEdge) {
-                        // Randomly extend or retract based on noise
-                        const extendNoise = noise.fbm2D(x * 0.08 + z * 0.05, y * 0.08, 3, 2.0, 0.5);
-                        if (extendNoise > 0.2) {
-                            // Extend edema slightly (finger projection)
-                            for (let dy = -3; dy <= 3; dy++) {
-                                for (let dx = -3; dx <= 3; dx++) {
-                                    const ny = y + dy;
-                                    const nx = x + dx;
-                                    if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                                        const nidx = ny * width + nx;
-                                        if (segmentationMask[z][nidx] === 0) {
-                                            // Check if still within brain
-                                            const distFromCenter = Math.sqrt(
-                                                Math.pow(nx - 120, 2) + Math.pow(ny - 120, 2)
-                                            );
-                                            if (distFromCenter < 88) {
-                                                const fingerNoise = noise.noise2D(nx * 0.1, ny * 0.1);
-                                                if (fingerNoise > -0.2) {
-                                                    segmentationMask[z][nidx] = 2;
-                                                    mriData[z][nidx] = Math.min(200, 
-                                                        mriData[z][nidx] * 1.1);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Add internal heterogeneity to necrotic core - scattered enhancing patches
-    for (let z = 60; z < 95; z++) {
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = y * width + x;
-                if (segmentationMask[z][idx] === 1) {
-                    // Add small patches of enhancing tumor within necrotic core
-                    const patchNoise = noise.fbm2D(x * 0.12 + z * 0.08, y * 0.12, 2, 2.0, 0.6);
-                    if (patchNoise > 0.35) {
-                        segmentationMask[z][idx] = 4;
-                        mriData[z][idx] = Math.min(255, mriData[z][idx] * 1.6);
-                    }
-                }
-            }
-        }
-    }
-    
-    // Create ring-like enhancing pattern around necrotic core (common in GBM)
-    for (let z = 65; z < 90; z++) {
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = y * width + x;
-                if (segmentationMask[z][idx] === 1) {
-                    // Check if at boundary between necrotic and edema
-                    let nearEdema = false;
-                    for (let dy = -2; dy <= 2; dy++) {
-                        for (let dx = -2; dx <= 2; dx++) {
-                            const ny = y + dy;
-                            const nx = x + dx;
-                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
-                                if (segmentationMask[z][ny * width + nx] === 2) {
-                                    nearEdema = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (nearEdema) break;
-                    }
-                    
-                    if (nearEdema) {
-                        const ringNoise = noise.noise2D(x * 0.15, y * 0.15);
-                        if (ringNoise > -0.3) {
-                            segmentationMask[z][idx] = 4; // Convert to enhancing
-                            mriData[z][idx] = Math.min(255, mriData[z][idx] * 1.5);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+// addIrregularFeatures removed - using focused tumor generation instead
 
 // ============================================================================
 // SEGMENTATION
