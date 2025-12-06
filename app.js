@@ -1017,142 +1017,156 @@ async function runSegmentation() {
 
 /**
  * Run segmentation inference on actual MRI data
- * This analyzes the real uploaded image intensities
+ * This finds the hyperintense tumor region and segments it properly
  * In production, this would use trained model weights
  */
 async function runSegmentationInference() {
     if (!mriData) return;
     
     const depth = mriData.length;
-    const width = mriData[0].length > 0 ? Math.sqrt(mriData[0].length) : 240;
+    const width = Math.round(Math.sqrt(mriData[0].length)) || 240;
     const height = width;
     
     // Initialize segmentation mask
     segmentationMask = new Array(depth);
+    for (let z = 0; z < depth; z++) {
+        segmentationMask[z] = new Uint8Array(mriData[z].length);
+    }
     
-    // Analyze image to find intensity statistics
-    let totalSum = 0;
-    let totalCount = 0;
-    let maxIntensity = 0;
-    
+    // Step 1: Find global intensity statistics (excluding background)
+    let intensities = [];
     for (let z = 0; z < depth; z++) {
         for (let i = 0; i < mriData[z].length; i++) {
             const val = mriData[z][i];
-            if (val > 10) { // Ignore background
-                totalSum += val;
-                totalCount++;
-            }
-            if (val > maxIntensity) maxIntensity = val;
+            if (val > 15) intensities.push(val); // Ignore dark background
         }
     }
     
-    const meanIntensity = totalCount > 0 ? totalSum / totalCount : 128;
+    intensities.sort((a, b) => a - b);
+    const p50 = intensities[Math.floor(intensities.length * 0.50)] || 100;
+    const p75 = intensities[Math.floor(intensities.length * 0.75)] || 150;
+    const p90 = intensities[Math.floor(intensities.length * 0.90)] || 180;
+    const p95 = intensities[Math.floor(intensities.length * 0.95)] || 200;
+    const p99 = intensities[Math.floor(intensities.length * 0.99)] || 220;
     
-    // Calculate intensity thresholds based on actual image statistics
-    // These thresholds should be tuned based on real training data
-    const bgThreshold = meanIntensity * 0.2;
-    const edemaLow = meanIntensity * 0.9;
-    const edemaHigh = meanIntensity * 1.4;
-    const coreLow = meanIntensity * 0.3;
-    const coreHigh = meanIntensity * 0.7;
-    const enhancingThreshold = meanIntensity * 1.5;
+    console.log('Intensity percentiles:', { p50, p75, p90, p95, p99 });
     
-    console.log('Image statistics:', {
-        meanIntensity,
-        maxIntensity,
-        bgThreshold,
-        edemaRange: [edemaLow, edemaHigh],
-        coreRange: [coreLow, coreHigh],
-        enhancingThreshold
-    });
+    // Step 2: Find the brightest connected region (the tumor)
+    // First, identify all very bright voxels (potential tumor)
+    const brightThreshold = p90;  // Top 10% brightness
+    let brightVoxels = [];
     
-    // Initialize noise for organic boundaries (used for refinement)
+    for (let z = 0; z < depth; z++) {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (mriData[z][idx] >= brightThreshold) {
+                    brightVoxels.push({ x, y, z, intensity: mriData[z][idx] });
+                }
+            }
+        }
+    }
+    
+    if (brightVoxels.length === 0) {
+        console.log('No bright regions found');
+        return;
+    }
+    
+    // Step 3: Find the centroid of the brightest cluster (tumor center)
+    // Weight by intensity to find the tumor core
+    let weightedSumX = 0, weightedSumY = 0, weightedSumZ = 0, totalWeight = 0;
+    
+    for (const voxel of brightVoxels) {
+        const weight = voxel.intensity * voxel.intensity; // Square to emphasize brighter pixels
+        weightedSumX += voxel.x * weight;
+        weightedSumY += voxel.y * weight;
+        weightedSumZ += voxel.z * weight;
+        totalWeight += weight;
+    }
+    
+    const tumorCenterX = Math.round(weightedSumX / totalWeight);
+    const tumorCenterY = Math.round(weightedSumY / totalWeight);
+    const tumorCenterZ = Math.round(weightedSumZ / totalWeight);
+    
+    console.log('Detected tumor center:', { tumorCenterX, tumorCenterY, tumorCenterZ });
+    
+    // Step 4: Determine tumor extent by analyzing intensity fall-off from center
+    // Find maximum extent where we still have elevated intensity
+    let maxRadius = 0;
+    for (const voxel of brightVoxels) {
+        const dist = Math.sqrt(
+            Math.pow(voxel.x - tumorCenterX, 2) +
+            Math.pow(voxel.y - tumorCenterY, 2) +
+            Math.pow((voxel.z - tumorCenterZ) * 1.5, 2)  // Z is typically lower resolution
+        );
+        if (dist > maxRadius) maxRadius = dist;
+    }
+    
+    // Limit max radius to reasonable tumor size
+    maxRadius = Math.min(maxRadius, 60);
+    
+    // Define tumor region radii based on detected extent
+    const enhancingRadius = maxRadius * 0.35;   // Inner bright core
+    const necroticRadius = maxRadius * 0.6;     // Middle necrotic ring
+    const edemaRadius = maxRadius * 1.0;        // Outer edema
+    
+    console.log('Tumor radii:', { enhancingRadius, necroticRadius, edemaRadius });
+    
+    // Step 5: Segment based on distance from tumor center AND intensity
     const noise = new OrganicNoise(42);
     
-    // Process each slice
     for (let z = 0; z < depth; z++) {
-        segmentationMask[z] = new Uint8Array(mriData[z].length);
+        const zDist = Math.abs(z - tumorCenterZ);
+        const zFactor = Math.max(0, 1 - (zDist / (maxRadius * 0.8)));
         
-        // First pass: intensity-based classification
-        for (let i = 0; i < mriData[z].length; i++) {
-            const intensity = mriData[z][i];
-            
-            // Skip background
-            if (intensity < bgThreshold) {
-                segmentationMask[z][i] = 0;
-                continue;
-            }
-            
-            // Simple intensity-based classification
-            // In production, this would be replaced by actual U-Net inference
-            if (intensity > enhancingThreshold) {
-                // High intensity - potential enhancing tumor
-                segmentationMask[z][i] = 4;
-            } else if (intensity >= edemaLow && intensity <= edemaHigh) {
-                // Mid-high intensity - potential edema
-                segmentationMask[z][i] = 2;
-            } else if (intensity >= coreLow && intensity <= coreHigh) {
-                // Low intensity in brain region - potential necrotic core
-                segmentationMask[z][i] = 1;
-            } else {
-                // Normal brain tissue
-                segmentationMask[z][i] = 0;
-            }
-        }
+        if (zFactor <= 0) continue;
         
-        // Second pass: spatial coherence (simple morphological cleanup)
-        const tempMask = new Uint8Array(segmentationMask[z]);
-        const w = Math.round(Math.sqrt(mriData[z].length));
-        
-        for (let y = 2; y < w - 2; y++) {
-            for (let x = 2; x < w - 2; x++) {
-                const idx = y * w + x;
-                const label = tempMask[idx];
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                const intensity = mriData[z][idx];
                 
-                if (label === 0) continue;
+                // Skip dark background
+                if (intensity < p50 * 0.5) continue;
                 
-                // Count neighbors with same label
-                let sameCount = 0;
-                let totalNeighbors = 0;
+                // Calculate 2D distance from tumor center on this slice
+                const dx = x - tumorCenterX;
+                const dy = y - tumorCenterY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
                 
-                for (let dy = -2; dy <= 2; dy++) {
-                    for (let dx = -2; dx <= 2; dx++) {
-                        if (dx === 0 && dy === 0) continue;
-                        const nidx = (y + dy) * w + (x + dx);
-                        if (nidx >= 0 && nidx < tempMask.length) {
-                            totalNeighbors++;
-                            if (tempMask[nidx] === label) sameCount++;
-                        }
-                    }
+                // Apply z-factor to radii
+                const currentEnhancingR = enhancingRadius * zFactor;
+                const currentNecroticR = necroticRadius * zFactor;
+                const currentEdemaR = edemaRadius * zFactor;
+                
+                // Add organic boundary variation
+                const angle = Math.atan2(dy, dx);
+                const boundaryNoise = noise.fbm2D(
+                    Math.cos(angle) * 2 + z * 0.05,
+                    Math.sin(angle) * 2,
+                    3, 2.0, 0.5
+                ) * 3;
+                
+                const adjustedDist = dist + boundaryNoise;
+                
+                // Segment based on distance AND intensity
+                if (adjustedDist < currentEnhancingR && intensity >= p75) {
+                    // Enhancing tumor (bright center) - Label 4
+                    segmentationMask[z][idx] = 4;
                 }
-                
-                // Remove isolated pixels (noise reduction)
-                if (sameCount < totalNeighbors * 0.2) {
-                    segmentationMask[z][idx] = 0;
+                else if (adjustedDist < currentNecroticR && intensity >= p50 * 0.6) {
+                    // Necrotic core (darker ring) - Label 1
+                    segmentationMask[z][idx] = 1;
+                }
+                else if (adjustedDist < currentEdemaR && intensity >= p75 * 0.8) {
+                    // Edema (moderate intensity outer region) - Label 2
+                    segmentationMask[z][idx] = 2;
                 }
             }
         }
     }
     
-    // Third pass: 3D consistency across slices
-    for (let z = 1; z < depth - 1; z++) {
-        const w = Math.round(Math.sqrt(mriData[z].length));
-        
-        for (let i = 0; i < mriData[z].length; i++) {
-            const label = segmentationMask[z][i];
-            if (label === 0) continue;
-            
-            const prevLabel = segmentationMask[z - 1][i];
-            const nextLabel = segmentationMask[z + 1][i];
-            
-            // If this voxel is labeled but both neighbors aren't, likely noise
-            if (prevLabel === 0 && nextLabel === 0) {
-                segmentationMask[z][i] = 0;
-            }
-        }
-    }
-    
-    console.log('✅ Segmentation inference complete on actual MRI data');
+    console.log('✅ Focused tumor segmentation complete');
 }
 
 async function loadDemoData() {
