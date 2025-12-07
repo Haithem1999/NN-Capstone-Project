@@ -1,6 +1,6 @@
 /**
  * NeuroScan AI - Brain Tumor Segmentation Application
- * 3D U-Net implementation with TensorFlow.js for browser-based inference
+ * 3D U-Net implementation for browser-based inference
  */
 
 // ============================================================================
