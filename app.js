@@ -723,7 +723,7 @@ async function loadDemoData() {
         switchTab('slices');
         
         document.getElementById('resultsPanel').classList.add('active');
-        document.getElementById('confidenceBadge').textContent = 'Dice: 0.89';
+        
         
         showNotification('✅ Demo data loaded successfully!');
         
