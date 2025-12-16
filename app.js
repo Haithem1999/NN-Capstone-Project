@@ -715,7 +715,7 @@ async function loadDemoData() {
         
         const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
         document.getElementById('processTime').textContent = processingTime + 's';
-        document.getElementById('diceScore').textContent = '0.89';
+        document.getElementById('diceScore').textContent = '0.65';
         
         updateTumorVolumes();
         
